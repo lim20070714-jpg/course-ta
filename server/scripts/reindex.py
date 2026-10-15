@@ -13,11 +13,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from sqlmodel import Session, select  # noqa: E402
+from sqlmodel import Session, select
 
-from app import db  # noqa: E402
-from app.core.ingest import ingest_material  # noqa: E402
-from app.models import Material  # noqa: E402
+from app import db
+from app.core.ingest import ingest_material
+from app.models import Material
 
 
 async def main() -> None:
