@@ -70,6 +70,9 @@ export function solveTransient(circuit: Circuit, opts: TransientOptions): Transi
           if (companion) stamps.push({ kind: 'G', a: el.a, b: el.b, y: cx(dt / el.inductance) })
           stamps.push({ kind: 'I', a: el.a, b: el.b, i: cx(-(iPrev.get(el.id) ?? 0)) })
           break
+        case 'OA':
+          stamps.push({ kind: 'O', id: el.id, p: el.p, n: el.n, out: el.out })
+          break
       }
     }
     return solveStamps(circuit, stamps)
@@ -110,6 +113,9 @@ export function solveTransient(circuit: Circuit, opts: TransientOptions): Transi
           i = companion
             ? (dt / el.inductance) * (v(el.a) - v(el.b)) + (iPrev.get(el.id) ?? 0)
             : (iPrev.get(el.id) ?? 0)
+          break
+        case 'OA':
+          i = sol.branchCurrents[el.id].re
           break
       }
       ;(currents[el.id] ??= []).push(i)

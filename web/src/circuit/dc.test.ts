@@ -97,3 +97,60 @@ describe('solveDC 直流工作点分析', () => {
     expect(() => solveDC(dupId)).toThrow(CircuitError)
   })
 })
+
+describe('solveDC 理想运放（nullor）', () => {
+  it('反相放大器：v_out = -(Rf/R1)·v_in，虚地成立', () => {
+    const circuit: Circuit = {
+      elements: [
+        { kind: 'V', id: 'V1', a: '1', b: '0', voltage: 2 },
+        { kind: 'R', id: 'R1', a: '1', b: '2', resistance: 1000 },
+        { kind: 'R', id: 'Rf', a: '2', b: '3', resistance: 10000 },
+        { kind: 'OA', id: 'OA1', p: '0', n: '2', out: '3' },
+      ],
+    }
+    const { nodes, currents } = solveDC(circuit)
+    expect(nodes['2']).toBeCloseTo(0, 9)
+    expect(nodes['3']).toBeCloseTo(-20, 9)
+    expect(currents['R1']).toBeCloseTo(0.002, 9)
+    expect(currents['Rf']).toBeCloseTo(0.002, 9)
+    // 输出端电流：流出运放为正，此处运放吸收 2mA
+    expect(currents['OA1']).toBeCloseTo(-0.002, 9)
+  })
+
+  it('同相放大器：v_out = (1 + Rf/R1)·v_in，输出端向外供流', () => {
+    const circuit: Circuit = {
+      elements: [
+        { kind: 'V', id: 'V1', a: '1', b: '0', voltage: 1 },
+        { kind: 'OA', id: 'OA1', p: '1', n: '2', out: '3' },
+        { kind: 'R', id: 'R1', a: '2', b: '0', resistance: 1000 },
+        { kind: 'R', id: 'Rf', a: '2', b: '3', resistance: 9000 },
+      ],
+    }
+    const { nodes, currents } = solveDC(circuit)
+    expect(nodes['2']).toBeCloseTo(1, 9)
+    expect(nodes['3']).toBeCloseTo(10, 9)
+    expect(currents['OA1']).toBeCloseTo(0.001, 9)
+  })
+
+  it('电压跟随器：输出等于输入，空载电流为 0', () => {
+    const circuit: Circuit = {
+      elements: [
+        { kind: 'V', id: 'V1', a: '1', b: '0', voltage: 3 },
+        { kind: 'OA', id: 'OA1', p: '1', n: '2', out: '2' },
+      ],
+    }
+    const { nodes, currents } = solveDC(circuit)
+    expect(nodes['2']).toBeCloseTo(3, 9)
+    expect(currents['OA1']).toBeCloseTo(0, 12)
+  })
+
+  it('无反馈的悬空运放报 CircuitError', () => {
+    const circuit: Circuit = {
+      elements: [
+        { kind: 'OA', id: 'OA1', p: '0', n: '0', out: '3' },
+        { kind: 'R', id: 'R1', a: '3', b: '0', resistance: 1000 },
+      ],
+    }
+    expect(() => solveDC(circuit)).toThrow(CircuitError)
+  })
+})

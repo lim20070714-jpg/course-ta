@@ -51,7 +51,24 @@ export interface CurrentSource {
   current: number
 }
 
-export type CircElement = Resistor | Capacitor | Inductor | VoltageSource | CurrentSource
+export interface OpAmp {
+  kind: 'OA'
+  id: string
+  /** 同相输入端节点 */
+  p: string
+  /** 反相输入端节点 */
+  n: string
+  /** 输出端节点 */
+  out: string
+}
+
+export type CircElement =
+  | Resistor
+  | Capacitor
+  | Inductor
+  | VoltageSource
+  | CurrentSource
+  | OpAmp
 
 export interface Circuit {
   /** 参考地节点标签，默认 "0" */

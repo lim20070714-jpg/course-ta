@@ -33,6 +33,9 @@ export function solveDC(circuit: Circuit): DCResult {
       case 'C':
         // 直流稳态：电容开路，电流为 0
         break
+      case 'OA':
+        stamps.push({ kind: 'O', id: el.id, p: el.p, n: el.n, out: el.out })
+        break
     }
   }
 
@@ -50,6 +53,7 @@ export function solveDC(circuit: Circuit): DCResult {
         break
       case 'V':
       case 'L':
+      case 'OA':
         currents[el.id] = sol.branchCurrents[el.id].re
         break
       case 'I':

@@ -34,6 +34,9 @@ export function solveAC(circuit: Circuit, f: number): ACResult {
       case 'I':
         stamps.push({ kind: 'I', a: el.a, b: el.b, i: cx(el.current) })
         break
+      case 'OA':
+        stamps.push({ kind: 'O', id: el.id, p: el.p, n: el.n, out: el.out })
+        break
     }
   }
 

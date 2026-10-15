@@ -73,3 +73,38 @@ describe('solveTransient 瞬态分析（后向欧拉）', () => {
     expect(() => solveTransient(RC_CHARGE, { dt: 1e-6, duration: -1 })).toThrow(CircuitError)
   })
 })
+
+describe('solveTransient 含理想运放的电路', () => {
+  it('反相积分器：v_out(t) = -(v_in/RC)·t，线性下降', () => {
+    const circuit: Circuit = {
+      elements: [
+        { kind: 'V', id: 'V1', a: '1', b: '0', voltage: 1 },
+        { kind: 'R', id: 'R1', a: '1', b: '2', resistance: 10000 },
+        { kind: 'C', id: 'C1', a: '2', b: '3', capacitance: 1e-6 },
+        { kind: 'OA', id: 'OA1', p: '0', n: '2', out: '3' },
+      ],
+    }
+    const res = solveTransient(circuit, { dt: 1e-6, duration: 1e-3 })
+    const vo = res.nodes['3']
+    expect(vo[0]).toBeCloseTo(0, 9)
+    // 1ms 时理论输出：-(1/(10k·1µ))·1ms = -0.1V（后向欧拉对斜坡输入无误差）
+    expect(vo[1000]).toBeCloseTo(-0.1, 6)
+    expect(vo[500]).toBeCloseTo(-0.05, 6)
+  })
+
+  it('RC 充电 + 电压跟随器：输出跟随电容电压', () => {
+    const circuit: Circuit = {
+      elements: [
+        { kind: 'V', id: 'V1', a: '1', b: '0', voltage: 5 },
+        { kind: 'R', id: 'R1', a: '1', b: '2', resistance: 1000 },
+        { kind: 'C', id: 'C1', a: '2', b: '0', capacitance: 1e-6 },
+        { kind: 'OA', id: 'OA1', p: '2', n: '3', out: '3' },
+      ],
+    }
+    const res = solveTransient(circuit, { dt: 1e-6, duration: 5e-3 })
+    const vo = res.nodes['3']
+    const vc = res.nodes['2']
+    for (let k = 0; k <= 5000; k += 500) expect(vo[k]).toBeCloseTo(vc[k], 9)
+    expect(vo[5000]).toBeCloseTo(5 * (1 - Math.exp(-5)), 2)
+  })
+})
