@@ -12,6 +12,7 @@ from app import db
 from app.config import settings
 from app.core import llm
 from app.core.ingest import extract_pages
+from app.core.pages import group_pages
 from app.core.rag import retrieve
 from app.models import Attempt, Material, Problem
 
@@ -81,27 +82,6 @@ SOLUTION_SYSTEM = (
     "4. 结尾用一两句话总结本题涉及的知识点。\n"
     "5. " + TEACHER_RULES
 )
-
-
-def group_pages(
-    pages: list[tuple[int, str]], budget: int = _EXTRACT_CHAR_BUDGET
-) -> list[list[tuple[int, str]]]:
-    """把页面按字符预算分批，避免单次提示过长。"""
-    batches: list[list[tuple[int, str]]] = []
-    cur: list[tuple[int, str]] = []
-    size = 0
-    for page_no, text in pages:
-        text = text.strip()
-        if not text:
-            continue
-        if cur and size + len(text) > budget:
-            batches.append(cur)
-            cur, size = [], 0
-        cur.append((page_no, text))
-        size += len(text)
-    if cur:
-        batches.append(cur)
-    return batches
 
 
 def _batch_prompt(batch: list[tuple[int, str]]) -> str:
@@ -235,7 +215,7 @@ async def run_extraction(material_id: int) -> None:
 
         pages = extract_pages(path)
         max_page = max((p for p, _ in pages), default=0)
-        batches = group_pages(pages)
+        batches = group_pages(pages, _EXTRACT_CHAR_BUDGET)
         if not batches:
             raise ValueError("材料中没有可提取的文本")
 

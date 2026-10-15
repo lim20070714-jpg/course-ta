@@ -102,6 +102,80 @@ export interface TagCount {
   count: number
 }
 
+export interface KeyPoint {
+  title: string
+  detail: string
+  pages: number[]
+}
+
+export interface MaterialSummary {
+  material_id: number
+  status: string // pending | generating | ready | failed
+  overview: string
+  key_points: KeyPoint[]
+  error: string
+}
+
+export const getMaterialSummary = (materialId: number) =>
+  fetch(`/api/materials/${materialId}/summary`).then((r) => json<MaterialSummary>(r))
+
+export const regenerateSummary = (materialId: number) =>
+  fetch(`/api/materials/${materialId}/summary`, { method: 'POST' }).then((r) =>
+    json<{ status: string }>(r),
+  )
+
+export interface ComputePayload {
+  expr: string
+  op: string
+  var?: string
+  point?: string
+  lower?: string
+  upper?: string
+  order?: number
+  symbols?: { name: string; kind: string }[]
+}
+
+export interface ComputeResult {
+  latex: string
+  plain: string
+  approx: string
+}
+
+export const evaluateCompute = (payload: ComputePayload) =>
+  fetch('/api/compute/evaluate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }).then((r) => json<ComputeResult>(r))
+
+export interface Formula {
+  id: number
+  title: string
+  latex: string
+  category: string
+  note: string
+  preset: boolean
+}
+
+export const listFormulas = () => fetch('/api/formulas').then((r) => json<Formula[]>(r))
+
+export const createFormula = (payload: Partial<Formula> & { title: string; latex: string }) =>
+  fetch('/api/formulas', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }).then((r) => json<Formula>(r))
+
+export const updateFormula = (id: number, payload: Partial<Formula>) =>
+  fetch(`/api/formulas/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }).then((r) => json<Formula>(r))
+
+export const deleteFormula = (id: number) =>
+  fetch(`/api/formulas/${id}`, { method: 'DELETE' }).then((r) => json<{ status: string }>(r))
+
 export interface WrongItem extends ProblemListItem {
   last_feedback: string
 }

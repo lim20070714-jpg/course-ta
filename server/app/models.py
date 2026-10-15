@@ -54,3 +54,22 @@ class Attempt(SQLModel, table=True):
     verdict: str = "unknown"  # correct | partial | wrong | unknown
     feedback: str = ""
     created_at: datetime = Field(default_factory=_now)
+
+
+class Summary(SQLModel, table=True):
+    material_id: int = Field(primary_key=True, foreign_key="material.id")
+    overview: str = ""  # 整体总结（Markdown + LaTeX）
+    key_points: str = "[]"  # 知识点 JSON: [{title, detail, pages: [int]}]
+    status: str = "pending"  # pending | generating | ready | failed
+    error: str = ""
+    created_at: datetime = Field(default_factory=_now)
+
+
+class Formula(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    title: str
+    latex: str
+    category: str = "自定义"  # 高等微积分 | 线性代数 | 物理 | 电子 | 复变函数 | 自定义
+    note: str = ""
+    preset: bool = False
+    created_at: datetime = Field(default_factory=_now)

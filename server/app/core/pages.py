@@ -34,3 +34,24 @@ def snippet_around(text: str, query: str, width: int = 70) -> str:
     prefix = "…" if start > 0 else ""
     suffix = "…" if end < len(text) else ""
     return f"{prefix}{text[start:end]}{suffix}"
+
+
+def group_pages(
+    pages: list[tuple[int, str]], budget: int
+) -> list[list[tuple[int, str]]]:
+    """把页面按字符预算分批，避免单次提示过长。"""
+    batches: list[list[tuple[int, str]]] = []
+    cur: list[tuple[int, str]] = []
+    size = 0
+    for page_no, text in pages:
+        text = text.strip()
+        if not text:
+            continue
+        if cur and size + len(text) > budget:
+            batches.append(cur)
+            cur, size = [], 0
+        cur.append((page_no, text))
+        size += len(text)
+    if cur:
+        batches.append(cur)
+    return batches

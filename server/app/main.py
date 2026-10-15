@@ -4,12 +4,13 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app import db
-from app.api import chat, courses, library, problems
+from app.api import chat, compute, courses, library, problems
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     db.init_db()
+    compute.seed_formulas()
     yield
 
 
@@ -26,6 +27,7 @@ app.include_router(courses.router, prefix="/api")
 app.include_router(chat.router, prefix="/api")
 app.include_router(library.router, prefix="/api")
 app.include_router(problems.router, prefix="/api")
+app.include_router(compute.router, prefix="/api")
 
 
 @app.get("/api/health")

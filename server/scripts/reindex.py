@@ -1,8 +1,9 @@
 """重新解析并索引已入库材料（解析器升级后使用）。
 
 用法（在 server/ 目录下）：
-    uv run python scripts/reindex.py                 # 全部材料
+    uv run python scripts/reindex.py                 # 全部材料（含 LLM 修复）
     uv run python scripts/reindex.py --material-id 4  # 单份材料
+    uv run python scripts/reindex.py --no-repair     # 跳过 LLM 修复（仅本地解析）
 """
 
 import argparse
@@ -23,6 +24,7 @@ from app.models import Material
 async def main() -> None:
     parser = argparse.ArgumentParser(description="重新解析并索引已入库材料")
     parser.add_argument("--material-id", type=int, help="只处理指定材料")
+    parser.add_argument("--no-repair", action="store_true", help="跳过 LLM 修复（仅本地解析）")
     args = parser.parse_args()
 
     with Session(db.engine) as session:
@@ -34,7 +36,7 @@ async def main() -> None:
     print(f"待重新索引 {len(targets)} 份材料", flush=True)
     started = time.time()
     for i, (material_id, filename) in enumerate(targets, 1):
-        await ingest_material(material_id)
+        await ingest_material(material_id, repair=not args.no_repair)
         with Session(db.engine) as session:
             m = session.get(Material, material_id)
             status = m.status if m else "missing"

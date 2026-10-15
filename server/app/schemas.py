@@ -118,3 +118,62 @@ class WrongItem(ProblemListItem):
 
 class GradeRequest(BaseModel):
     answer: str
+
+
+class KeyPointRead(BaseModel):
+    title: str
+    detail: str
+    pages: list[int] = []
+
+
+class SummaryRead(BaseModel):
+    material_id: int
+    status: str  # pending | generating | ready | failed
+    overview: str = ""
+    key_points: list[KeyPointRead] = []
+    error: str = ""
+
+
+class ComputeSymbolIn(BaseModel):
+    name: str
+    kind: str = "complex"  # real | positive | negative | integer | complex
+
+
+class ComputeRequest(BaseModel):
+    expr: str
+    op: str = "simplify"
+    var: str = "x"
+    point: str = ""
+    lower: str = ""
+    upper: str = ""
+    order: int = 1
+    symbols: list[ComputeSymbolIn] = []
+
+
+class ComputeResult(BaseModel):
+    latex: str
+    plain: str
+    approx: str = ""
+
+
+class FormulaCreate(BaseModel):
+    title: str
+    latex: str
+    category: str = "自定义"
+    note: str = ""
+
+
+class FormulaUpdate(BaseModel):
+    title: str | None = None
+    latex: str | None = None
+    category: str | None = None
+    note: str | None = None
+
+
+class FormulaRead(BaseModel):
+    id: int
+    title: str
+    latex: str
+    category: str
+    note: str
+    preset: bool

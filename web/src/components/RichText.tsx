@@ -15,14 +15,14 @@ function normalizeMath(src: string): string {
     .replace(/\[([^[\]\n]*\\[a-zA-Z]+[^[\]\n]*)\]/g, (_, body: string) => `$$${body}$$`)
 }
 
-/** Markdown + GFM + KaTeX 渲染（公式定界符已归一化）。 */
+/** Markdown + GFM + KaTeX 渲染（公式定界符已归一化，保留单换行）。 */
 export default function RichText({ text }: { text: string }) {
   return (
     <Markdown
       remarkPlugins={[remarkGfm, remarkMath]}
       rehypePlugins={[[rehypeKatex, { throwOnError: false }]]}
     >
-      {normalizeMath(text)}
+      {normalizeMath(text).replace(/\n/g, '  \n')}
     </Markdown>
   )
 }

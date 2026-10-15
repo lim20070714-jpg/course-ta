@@ -3,13 +3,15 @@ import type { Course } from './api'
 import { createCourse, listCourses } from './api'
 import LabPage from './components/LabPage'
 import Bank from './sections/Bank'
+import Compute from './sections/Compute'
 import Library from './sections/Library'
 
-type Tab = 'library' | 'bank' | 'graph' | 'lab'
+type Tab = 'library' | 'bank' | 'compute' | 'graph' | 'lab'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'library', label: '课程资料' },
   { id: 'bank', label: '题库与解答' },
+  { id: 'compute', label: '计算台' },
   { id: 'graph', label: '知识图谱' },
   { id: 'lab', label: '电路实验台' },
 ]
@@ -109,6 +111,7 @@ export default function App() {
 
       {tab === 'library' && <Library key={activeCourseId ?? 'none'} courseId={activeCourseId} />}
       {tab === 'bank' && <Bank key={activeCourseId ?? 'none'} courseId={activeCourseId} />}
+      {tab === 'compute' && <Compute />}
       {tab === 'lab' && <LabPage />}
       {tab === 'graph' && <Placeholder onGo={() => setTab('library')} />}
     </div>

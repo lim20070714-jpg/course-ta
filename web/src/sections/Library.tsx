@@ -4,13 +4,25 @@ import type {
   Citation,
   Material,
   MaterialPages,
+  MaterialSummary,
   SearchHit,
   SearchResponse,
 } from '../api'
-import { listMaterials, materialPages, searchCourse, streamChat, uploadMaterial } from '../api'
+import {
+  getMaterialSummary,
+  listMaterials,
+  materialPages,
+  pageImageUrl,
+  regenerateSummary,
+  searchCourse,
+  streamChat,
+  uploadMaterial,
+} from '../api'
 import RichText from '../components/RichText'
 
 const PAGE_WINDOW = 20
+
+type ReaderView = 'summary' | 'text' | 'image'
 
 interface Message {
   role: 'user' | 'assistant'
@@ -29,6 +41,8 @@ export default function Library({ courseId }: { courseId: number | null }) {
   const [page, setPage] = useState(1)
   const [jumpText, setJumpText] = useState('1')
   const [reading, setReading] = useState(false)
+  const [view, setView] = useState<ReaderView>('summary')
+  const [summary, setSummary] = useState<MaterialSummary | null>(null)
 
   const [query, setQuery] = useState('')
   const [hits, setHits] = useState<SearchResponse | null>(null)
@@ -62,6 +76,31 @@ export default function Library({ courseId }: { courseId: number | null }) {
     askBottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
+  useEffect(() => {
+    if (!current) return
+    let stop = false
+    getMaterialSummary(current.id)
+      .then((s) => {
+        if (!stop) setSummary(s)
+      })
+      .catch(() => {
+        if (!stop) setSummary(null)
+      })
+    return () => {
+      stop = true
+    }
+  }, [current])
+
+  useEffect(() => {
+    if (!current || summary?.status !== 'generating') return
+    const timer = setInterval(() => {
+      getMaterialSummary(current.id)
+        .then(setSummary)
+        .catch(() => undefined)
+    }, 4000)
+    return () => clearInterval(timer)
+  }, [current, summary?.status])
+
   const filtered = useMemo(() => {
     const q = filter.trim().toLowerCase()
     if (!q) return materials
@@ -88,6 +127,8 @@ export default function Library({ courseId }: { courseId: number | null }) {
 
   function openMaterial(m: Material, target = 1) {
     setCurrent(m)
+    setView('summary')
+    setSummary(null)
     setNotice('')
     if (
       doc?.material_id === m.id &&
@@ -101,8 +142,50 @@ export default function Library({ courseId }: { courseId: number | null }) {
     loadWindow(m.id, target)
   }
 
+  function openAtPage(m: Material, target: number) {
+    if (!m) return
+    setCurrent(m)
+    setSummary(null)
+    setNotice('')
+    setView(m.filename.toLowerCase().endsWith('.pdf') ? 'image' : 'text')
+    if (
+      doc?.material_id === m.id &&
+      target >= doc.offset + 1 &&
+      target <= doc.offset + doc.pages.length
+    ) {
+      setPage(target)
+      setJumpText(String(target))
+      return
+    }
+    loadWindow(m.id, target)
+  }
+
+  async function regenerate() {
+    if (!current) return
+    try {
+      await regenerateSummary(current.id)
+      setSummary((s) =>
+        s
+          ? { ...s, status: 'generating', error: '' }
+          : {
+              material_id: current.id,
+              status: 'generating',
+              overview: '',
+              key_points: [],
+              error: '',
+            },
+      )
+    } catch (e) {
+      setNotice((e as Error).message)
+    }
+  }
+
   function gotoPage(target: number) {
-    if (!current || !doc) return
+    if (!current) return
+    if (!doc) {
+      loadWindow(current.id, target)
+      return
+    }
     const clamped = Math.min(Math.max(1, target), Math.max(1, doc.page_count))
     setJumpText(String(clamped))
     if (clamped >= doc.offset + 1 && clamped <= doc.offset + doc.pages.length) {
@@ -132,15 +215,21 @@ export default function Library({ courseId }: { courseId: number | null }) {
 
   function openHit(hit: SearchHit) {
     const m = materials.find((x) => x.id === hit.material_id)
-    openMaterial(
+    openAtPage(
       m ?? { id: hit.material_id, filename: hit.material, status: 'ready', error: '', chunk_count: 0 },
       hit.page,
     )
   }
 
+  function jumpToPage(p: number) {
+    if (!current) return
+    setView(current.filename.toLowerCase().endsWith('.pdf') ? 'image' : 'text')
+    gotoPage(p)
+  }
+
   function jumpCitation(c: Citation) {
     const m = materials.find((x) => x.id === c.material_id)
-    openMaterial(
+    openAtPage(
       m ?? { id: c.material_id, filename: c.material, status: 'ready', error: '', chunk_count: 0 },
       c.page,
     )
@@ -272,7 +361,31 @@ export default function Library({ courseId }: { courseId: number | null }) {
           {current ? (
             <>
               <div className="reader-head">
-                <h2 className="reader-title">{current.filename}</h2>
+                <div className="reader-title-wrap">
+                  <h2 className="reader-title">{current.filename}</h2>
+                  <div className="reader-views">
+                    <button
+                      className={view === 'summary' ? 'view-tab active' : 'view-tab'}
+                      onClick={() => setView('summary')}
+                    >
+                      知识点总结
+                    </button>
+                    <button
+                      className={view === 'text' ? 'view-tab active' : 'view-tab'}
+                      onClick={() => setView('text')}
+                    >
+                      原文
+                    </button>
+                    {current.filename.toLowerCase().endsWith('.pdf') && (
+                      <button
+                        className={view === 'image' ? 'view-tab active' : 'view-tab'}
+                        onClick={() => setView('image')}
+                      >
+                        原页图
+                      </button>
+                    )}
+                  </div>
+                </div>
                 <div className="reader-nav">
                   <button
                     className="mini ghost"
@@ -312,13 +425,29 @@ export default function Library({ courseId }: { courseId: number | null }) {
                 </div>
               </div>
               <article className="reader-body">
-                {reading && !doc && <p className="reader-empty">加载中…</p>}
-                {doc &&
-                  (pageText ? (
-                    <>{pageText}</>
+                {view === 'summary' ? (
+                  <SummaryPanel
+                    summary={summary}
+                    onGenerate={regenerate}
+                    onJump={jumpToPage}
+                  />
+                ) : view === 'image' ? (
+                  <div className="reader-image">
+                    <img
+                      className="reader-page-image"
+                      src={pageImageUrl(current.id, page)}
+                      alt={`${current.filename} 第 ${page} 页`}
+                    />
+                  </div>
+                ) : reading && !doc ? (
+                  <p className="reader-empty">加载中…</p>
+                ) : doc ? (
+                  pageText ? (
+                    <RichText text={pageText} />
                   ) : (
                     <p className="reader-empty">（本页没有可提取的文本，可能是扫描页或纯图片页）</p>
-                  ))}
+                  )
+                ) : null}
               </article>
             </>
           ) : hits ? (
@@ -412,6 +541,93 @@ export default function Library({ courseId }: { courseId: number | null }) {
           </div>
         </aside>
       )}
+    </div>
+  )
+}
+
+function SummaryPanel({
+  summary,
+  onGenerate,
+  onJump,
+}: {
+  summary: MaterialSummary | null
+  onGenerate: () => void
+  onJump: (p: number) => void
+}) {
+  if (summary === null) {
+    return <p className="reader-empty">加载总结中…</p>
+  }
+  if (summary.status === 'generating') {
+    return (
+      <div className="summary-status">
+        <p className="summary-hint">AI 正在总结这份材料，提取知识点并定位页码…（可先切换到原文或原页图浏览）</p>
+      </div>
+    )
+  }
+  if (summary.status === 'failed') {
+    return (
+      <div className="summary-status">
+        <p className="summary-error">总结生成失败：{summary.error || '未知错误'}</p>
+        <button className="mini" onClick={onGenerate}>
+          重新生成
+        </button>
+      </div>
+    )
+  }
+  if (summary.status === 'pending' || (!summary.overview && summary.key_points.length === 0)) {
+    return (
+      <div className="summary-status">
+        <p className="summary-hint">
+          这份材料还没有知识总结。生成后会得到「整体总结 + 知识点清单」，点击知识点的页码可直接跳转到原页。
+        </p>
+        <button className="mini" onClick={onGenerate}>
+          生成知识总结
+        </button>
+      </div>
+    )
+  }
+  return (
+    <div className="summary-view">
+      {summary.overview && (
+        <section className="summary-overview">
+          <div className="summary-section-title">整体总结</div>
+          <RichText text={summary.overview} />
+        </section>
+      )}
+      {summary.key_points.length > 0 && (
+        <section className="summary-points">
+          <div className="summary-section-title">知识点（{summary.key_points.length}）</div>
+          <ul className="keypoint-list">
+            {summary.key_points.map((kp, i) => (
+              <li key={i} className="keypoint">
+                <div className="keypoint-head">
+                  <span className="keypoint-title">{kp.title}</span>
+                  <span className="keypoint-pages">
+                    {kp.pages.map((p) => (
+                      <button
+                        key={p}
+                        className="page-badge"
+                        title={`跳转到第 ${p} 页`}
+                        onClick={() => onJump(p)}
+                      >
+                        第 {p} 页
+                      </button>
+                    ))}
+                  </span>
+                </div>
+                <div className="keypoint-detail">
+                  <RichText text={kp.detail} />
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+      <div className="summary-foot">
+        <button className="mini ghost" onClick={onGenerate}>
+          重新生成总结
+        </button>
+      </div>
     </div>
   )
 }
