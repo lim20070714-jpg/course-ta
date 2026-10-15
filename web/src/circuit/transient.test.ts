@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { CircuitError, solveTransient, type Circuit } from './index'
+import { CircuitError, solveTransient, sourceValue, type Circuit } from './index'
 
 const RC_CHARGE: Circuit = {
   elements: [
@@ -71,6 +71,90 @@ describe('solveTransient 瞬态分析（后向欧拉）', () => {
   it('非法 dt/duration 报 CircuitError', () => {
     expect(() => solveTransient(RC_CHARGE, { dt: 0, duration: 1e-3 })).toThrow(CircuitError)
     expect(() => solveTransient(RC_CHARGE, { dt: 1e-6, duration: -1 })).toThrow(CircuitError)
+  })
+})
+
+describe('sourceValue 电源波形', () => {
+  it('无波形时为恒定直流', () => {
+    expect(sourceValue(5, undefined, 0.123)).toBe(5)
+  })
+
+  it('正弦：base + 幅值·sin(2πft)', () => {
+    const wave = { shape: 'sin' as const, amplitude: 2, frequency: 1000 }
+    expect(sourceValue(1, wave, 0)).toBeCloseTo(1, 12)
+    expect(sourceValue(1, wave, 0.25e-3)).toBeCloseTo(3, 9) // T/4 峰值
+    expect(sourceValue(1, wave, 0.75e-3)).toBeCloseTo(-1, 9) // 3T/4 谷值
+    expect(sourceValue(1, wave, 1e-3)).toBeCloseTo(1, 6) // 整周期回到 base
+  })
+
+  it('方波：半周期在 ±幅值间跳变，t=0 起为正', () => {
+    const wave = { shape: 'square' as const, amplitude: 2.5, frequency: 200 }
+    expect(sourceValue(2.5, wave, 0)).toBe(5)
+    expect(sourceValue(2.5, wave, 2.4e-3)).toBe(5)
+    expect(sourceValue(2.5, wave, 2.6e-3)).toBe(0)
+    expect(sourceValue(2.5, wave, 5.1e-3)).toBe(5)
+  })
+})
+
+describe('solveTransient 含波形电源', () => {
+  it('正弦电压源驱动电阻分压：各时刻与解析瞬时值一致', () => {
+    const wave = { shape: 'sin' as const, amplitude: 2, frequency: 1000 }
+    const circuit: Circuit = {
+      elements: [
+        { kind: 'V', id: 'V1', a: '1', b: '0', voltage: 1, wave },
+        { kind: 'R', id: 'R1', a: '1', b: '2', resistance: 1000 },
+        { kind: 'R', id: 'R2', a: '2', b: '0', resistance: 1000 },
+      ],
+    }
+    const res = solveTransient(circuit, { dt: 1e-6, duration: 1e-3 })
+    for (const k of [0, 100, 250, 500, 750, 1000]) {
+      expect(res.nodes['1'][k]).toBeCloseTo(sourceValue(1, wave, res.t[k]), 9)
+      expect(res.nodes['2'][k]).toBeCloseTo(sourceValue(1, wave, res.t[k]) / 2, 9)
+    }
+  })
+
+  it('RC 方波充放电：τ=1ms、半周期 2.5ms，电压在两电平间指数过渡', () => {
+    const circuit: Circuit = {
+      elements: [
+        {
+          kind: 'V',
+          id: 'V1',
+          a: '1',
+          b: '0',
+          voltage: 2.5,
+          wave: { shape: 'square', amplitude: 2.5, frequency: 200 },
+        },
+        { kind: 'R', id: 'R1', a: '1', b: '2', resistance: 1000 },
+        { kind: 'C', id: 'C1', a: '2', b: '0', capacitance: 1e-6 },
+      ],
+    }
+    const res = solveTransient(circuit, { dt: 1e-6, duration: 5e-3 })
+    const vc = res.nodes['2']
+    expect(vc[0]).toBe(0)
+    // 第一个半周期源为 5V，2.5τ 时刻充电至约 5(1-e^-2.5)=4.59V
+    expect(vc[2500]).toBeGreaterThan(4.5)
+    expect(vc[2500]).toBeLessThan(4.65)
+    // 第二个半周期源为 0V，反向放电至约 4.59·e^-2.5=0.38V
+    expect(vc[5000]).toBeGreaterThan(0.3)
+    expect(vc[5000]).toBeLessThan(0.45)
+  })
+
+  it('非法波形参数报 CircuitError', () => {
+    const bad = (wave: object): Circuit => ({
+      elements: [
+        { kind: 'V', id: 'V1', a: '1', b: '0', voltage: 0, wave: wave as never },
+        { kind: 'R', id: 'R1', a: '1', b: '0', resistance: 100 },
+      ],
+    })
+    expect(() => solveTransient(bad({ shape: 'sin', amplitude: 0, frequency: 1 }), { dt: 1e-6, duration: 1e-3 })).toThrow(
+      /幅值/,
+    )
+    expect(() =>
+      solveTransient(bad({ shape: 'sin', amplitude: 1, frequency: 0 }), { dt: 1e-6, duration: 1e-3 }),
+    ).toThrow(/频率/)
+    expect(() =>
+      solveTransient(bad({ shape: 'tri', amplitude: 1, frequency: 1 }), { dt: 1e-6, duration: 1e-3 }),
+    ).toThrow(/波形类型/)
   })
 })
 

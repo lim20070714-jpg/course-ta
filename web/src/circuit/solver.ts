@@ -12,7 +12,7 @@
  */
 
 import { add, cx, neg, solveLinear, type Cx } from './linalg'
-import { CircuitError, type CircElement, type Circuit } from './types'
+import { CircuitError, type CircElement, type Circuit, type SourceWave } from './types'
 
 export interface GStamp {
   kind: 'G'
@@ -60,6 +60,16 @@ export function elementNodes(el: CircElement): string[] {
 
 export function validateCircuit(circuit: Circuit): void {
   if (circuit.elements.length === 0) throw new CircuitError('电路中没有元件')
+  const checkWave = (id: string, wave: SourceWave | undefined): void => {
+    if (!wave) return
+    if (wave.shape !== 'sin' && wave.shape !== 'square') throw new CircuitError(`${id}: 波形类型无效`)
+    if (!(Number.isFinite(wave.amplitude) && wave.amplitude > 0)) {
+      throw new CircuitError(`${id}: 波形幅值必须为有限正数`)
+    }
+    if (!(Number.isFinite(wave.frequency) && wave.frequency > 0)) {
+      throw new CircuitError(`${id}: 波形频率必须为有限正数`)
+    }
+  }
   const ids = new Set<string>()
   for (const el of circuit.elements) {
     if (ids.has(el.id)) throw new CircuitError(`元件 id 重复：${el.id}`)
@@ -82,9 +92,11 @@ export function validateCircuit(circuit: Circuit): void {
         break
       case 'V':
         if (!Number.isFinite(el.voltage)) throw new CircuitError(`${el.id}: 电压源数值无效`)
+        checkWave(el.id, el.wave)
         break
       case 'I':
         if (!Number.isFinite(el.current)) throw new CircuitError(`${el.id}: 电流源数值无效`)
+        checkWave(el.id, el.wave)
         break
       case 'OA':
         break

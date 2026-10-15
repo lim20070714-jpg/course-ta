@@ -3,7 +3,10 @@
  *
  * 交互约定：
  * - 点击面板元件后点击画布放置；拖拽元件本体移动；选中后在属性栏改参数/旋转/删除。
- * - 连线：从端子按下并拖到终点松开，或连续点击两个位置（起点必须是端子/导线拐点）。
+ *   电压源、电流源可选正弦波/方波，带幅值、频率、直流偏置。
+ * - 连线（磁吸 + 多段折线）：点端子开始，光标靠近端子/导线折点/导线线段时会吸附并高亮，
+ *   点端子或双击空白收尾；中途点击空白可加折点；从端子直接拖到终点松开也可完成；Esc 取消。
+ * - 画布：Ctrl + 滚轮以光标为中心缩放，＋/－/整页按钮，拖动空白平移。
  * - 结果实时由 buildCircuit 提取网表交给 MNA 内核（直流 / 瞬态 / 扫频）。
  */
 
@@ -34,6 +37,7 @@ import {
   routeWire,
   rotateComp,
   sampleBuild,
+  squareRcBuild,
   terminalsOf,
   type BComp,
   type BWire,
@@ -41,6 +45,7 @@ import {
   type BuildResult,
   type CompKind,
   type Pt,
+  type WaveShape,
 } from '../labs/builder'
 import Plot, { type PlotSeries } from './Plot'
 
@@ -58,10 +63,22 @@ const VB_X = -PAD
 const VB_Y = -PAD
 const VB_W = COLS * GRID + 2 * PAD
 const VB_H = ROWS * GRID + 2 * PAD
+const WORLD_W = COLS * GRID
+const WORLD_H = ROWS * GRID
+
+/** 缩放范围与磁吸半径（格） */
+const Z_MIN = 0.7
+const Z_MAX = 8
+const SNAP_R = 0.85
 
 const px = (v: number) => v * GRID
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))
+
+const clampCenter = (cx: number, cy: number) => ({
+  cx: clamp(cx, VB_X, WORLD_W + PAD),
+  cy: clamp(cy, VB_Y, WORLD_H + PAD),
+})
 
 function loadSaved(): Build | null {
   try {
@@ -92,6 +109,31 @@ const isOutputCurrent = (kind: CompKind | CircElement['kind']) => kind === 'V' |
 /** 分析面板里统一换算成“输出电流”的显示值 */
 const displayCurrent = (kind: CircElement['kind'], i: number) => (isOutputCurrent(kind) ? -i : i)
 
+/** 把 target 接入折线：必要时按正交走线补拐点；target 与末点重合时不改 */
+function appendRoute(pts: Pt[], target: Pt): Pt[] {
+  const last = pts[pts.length - 1]
+  if (target.x === last.x && target.y === last.y) return pts
+  return [...pts, ...routeWire(last, target).slice(1)]
+}
+
+/** 提交前的整理：去除重复点、合并共线的中间点 */
+function simplifyWire(pts: Pt[]): Pt[] {
+  const out: Pt[] = []
+  for (const p of pts) {
+    const last = out[out.length - 1]
+    if (last && last.x === p.x && last.y === p.y) continue
+    out.push(p)
+  }
+  for (let i = 1; i < out.length - 1; ) {
+    const a = out[i - 1]
+    const b = out[i]
+    const c = out[i + 1]
+    if ((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x) === 0) out.splice(i, 1)
+    else i++
+  }
+  return out
+}
+
 interface DragState {
   id: string
   offX: number
@@ -100,10 +142,34 @@ interface DragState {
   moved: boolean
 }
 
+type SnapKind = 'term' | 'vertex' | 'segment' | 'grid'
+
+interface SnapInfo {
+  pt: Pt
+  kind: SnapKind
+}
+
 interface WireDraft {
-  from: Pt
+  /** 已确认的折线顶点（pts[0] 为起点端子/导线折点） */
+  pts: Pt[]
+  /** 当前光标吸附位置（预览终点） */
   to: Pt | null
+  snap: SnapInfo | null
   moved: boolean
+}
+
+interface PanState {
+  start: Pt
+  cx: number
+  cy: number
+  moved: boolean
+}
+
+interface ViewState {
+  /** 视口缩放：1 = 整页；viewBox 宽 = VB_W / zoom */
+  zoom: number
+  cx: number
+  cy: number
 }
 
 export default function CircuitBuilder() {
@@ -113,15 +179,21 @@ export default function CircuitBuilder() {
   const [selWire, setSelWire] = useState<string | null>(null)
   const [drag, setDrag] = useState<DragState | null>(null)
   const [draft, setDraft] = useState<WireDraft | null>(null)
+  const [pan, setPan] = useState<PanState | null>(null)
+  const [view, setView] = useState<ViewState>({ zoom: 1, cx: WORLD_W / 2, cy: WORLD_H / 2 })
   const [valueText, setValueText] = useState('')
   const [initText, setInitText] = useState('')
+  const [freqText, setFreqText] = useState('')
+  const [offsetText, setOffsetText] = useState('')
   const [hint, setHint] = useState('')
   const svgRef = useRef<SVGSVGElement | null>(null)
   const pressRef = useRef<Pt | null>(null)
   const dragRef = useRef<DragState | null>(null)
   const draftRef = useRef<WireDraft | null>(null)
+  const panRef = useRef<PanState | null>(null)
+  const viewRef = useRef<ViewState>(view)
 
-  /** 拖拽/连线状态同步存 ref：连续 pointermove 的渲染可能滞后，pointerup 需要读到最新值 */
+  /** 拖拽/连线/平移状态同步存 ref：连续 pointermove 的渲染可能滞后，pointerup 需要读到最新值 */
   const putDrag = (d: DragState | null) => {
     dragRef.current = d
     setDrag(d)
@@ -129,6 +201,14 @@ export default function CircuitBuilder() {
   const putDraft = (d: WireDraft | null) => {
     draftRef.current = d
     setDraft(d)
+  }
+  const putPan = (p: PanState | null) => {
+    panRef.current = p
+    setPan(p)
+  }
+  const putView = (v: ViewState) => {
+    viewRef.current = v
+    setView(v)
   }
 
   useEffect(() => {
@@ -138,6 +218,33 @@ export default function CircuitBuilder() {
       /* 隐私模式等场景下忽略 */
     }
   }, [build])
+
+  /* Ctrl + 滚轮缩放：普通滚轮保持页面滚动，因此需要非 passive 的原生监听 */
+  useEffect(() => {
+    const svg = svgRef.current
+    if (!svg) return
+    const onWheel = (e: WheelEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return
+      e.preventDefault()
+      const rect = svg.getBoundingClientRect()
+      const v = viewRef.current
+      const factor = e.deltaY < 0 ? 1.2 : 1 / 1.2
+      const z2 = clamp(v.zoom * factor, Z_MIN, Z_MAX)
+      if (z2 === v.zoom) return
+      const gx = clamp((e.clientX - rect.left) / Math.max(rect.width, 1), 0, 1)
+      const gy = clamp((e.clientY - rect.top) / Math.max(rect.height, 1), 0, 1)
+      const w0 = VB_W / v.zoom
+      const h0 = VB_H / v.zoom
+      const wx = v.cx - w0 / 2 + gx * w0
+      const wy = v.cy - h0 / 2 + gy * h0
+      const w1 = VB_W / z2
+      const h1 = VB_H / z2
+      const c = clampCenter(wx - (gx - 0.5) * w1, wy - (gy - 0.5) * h1)
+      putView({ zoom: z2, cx: c.cx, cy: c.cy })
+    }
+    svg.addEventListener('wheel', onWheel, { passive: false })
+    return () => svg.removeEventListener('wheel', onWheel)
+  }, [])
 
   const built = useMemo(() => {
     try {
@@ -162,10 +269,9 @@ export default function CircuitBuilder() {
     const onKey = (ev: KeyboardEvent) => {
       if (ev.key === 'Escape') {
         setArmed(null)
-        draftRef.current = null
-        setDraft(null)
-        dragRef.current = null
-        setDrag(null)
+        putDraft(null)
+        putDrag(null)
+        putPan(null)
         pressRef.current = null
         setHint('')
         return
@@ -186,20 +292,72 @@ export default function CircuitBuilder() {
     return () => window.removeEventListener('keydown', onKey)
   }, [selComp, selWire])
 
-  /* ---------- 坐标换算 ---------- */
+  /* ---------- 坐标换算与磁吸 ---------- */
 
   const rawGrid = (e: { clientX: number; clientY: number }): Pt => {
     const svg = svgRef.current
     if (!svg) return { x: 0, y: 0 }
     const rect = svg.getBoundingClientRect()
-    const x = ((e.clientX - rect.left) / Math.max(rect.width, 1)) * VB_W + VB_X
-    const y = ((e.clientY - rect.top) / Math.max(rect.height, 1)) * VB_H + VB_Y
+    const v = viewRef.current
+    const w = VB_W / v.zoom
+    const h = VB_H / v.zoom
+    const x = v.cx - w / 2 + ((e.clientX - rect.left) / Math.max(rect.width, 1)) * w
+    const y = v.cy - h / 2 + ((e.clientY - rect.top) / Math.max(rect.height, 1)) * h
     return { x: x / GRID, y: y / GRID }
   }
 
   const snapPt = (e: { clientX: number; clientY: number }): Pt => {
     const g = rawGrid(e)
     return { x: clamp(Math.round(g.x), 0, COLS), y: clamp(Math.round(g.y), 0, ROWS) }
+  }
+
+  const snapTerms = useMemo(() => build.comps.flatMap((c) => terminalsOf(c).map((t) => t.pt)), [build.comps])
+  const snapVerts = useMemo(() => build.wires.flatMap((w) => w.pts), [build.wires])
+
+  /** 磁吸：优先端子与折点（取最近），其次导线线段上的格点（T 型结点），否则网格 */
+  const magnetSnap = (g: Pt): SnapInfo => {
+    let best: Pt | null = null
+    let bestD = SNAP_R
+    for (const p of snapTerms) {
+      const d = Math.hypot(p.x - g.x, p.y - g.y)
+      if (d < bestD) {
+        best = p
+        bestD = d
+      }
+    }
+    for (const p of snapVerts) {
+      const d = Math.hypot(p.x - g.x, p.y - g.y)
+      if (d < bestD) {
+        best = p
+        bestD = d
+      }
+    }
+    if (best) return { pt: best, kind: snapTerms.includes(best) ? 'term' : 'vertex' }
+    let seg: Pt | null = null
+    let segD = SNAP_R
+    for (const w of build.wires) {
+      for (let i = 1; i < w.pts.length; i++) {
+        const a = w.pts[i - 1]
+        const b = w.pts[i]
+        if (a.x === b.x) {
+          const y = clamp(Math.round(g.y), Math.min(a.y, b.y), Math.max(a.y, b.y))
+          const d = Math.hypot(a.x - g.x, y - g.y)
+          if (d < segD) {
+            seg = { x: a.x, y }
+            segD = d
+          }
+        } else {
+          const x = clamp(Math.round(g.x), Math.min(a.x, b.x), Math.max(a.x, b.x))
+          const d = Math.hypot(x - g.x, a.y - g.y)
+          if (d < segD) {
+            seg = { x, y: a.y }
+            segD = d
+          }
+        }
+      }
+    }
+    if (seg) return { pt: seg, kind: 'segment' }
+    return { pt: { x: clamp(Math.round(g.x), 0, COLS), y: clamp(Math.round(g.y), 0, ROWS) }, kind: 'grid' }
   }
 
   /* ---------- 放置 / 拖拽 ---------- */
@@ -209,6 +367,8 @@ export default function CircuitBuilder() {
     setSelWire(null)
     setValueText(formatCompValue(c))
     setInitText(c.init !== undefined ? formatSi(c.init, initUnit(c.kind)) : '')
+    setFreqText(c.freq !== undefined ? String(c.freq) : '')
+    setOffsetText(c.offset !== undefined ? String(c.offset) : '')
   }
 
   const placeComp = (kind: CompKind, pt: Pt) => {
@@ -257,33 +417,39 @@ export default function CircuitBuilder() {
       finishWire(pt)
       return
     }
-    putDraft({ from: pt, to: null, moved: false })
+    putDraft({ pts: [pt], to: null, snap: null, moved: false })
     setSelComp(null)
     setSelWire(null)
     setHint('')
   }
 
-  const finishWire = (to: Pt) => {
+  const finishWire = (target: Pt) => {
     const d = draftRef.current
     if (!d) return
-    const from = d.from
-    if (from.x === to.x && from.y === to.y) {
+    const pts = simplifyWire(appendRoute(d.pts, target))
+    if (pts.length < 2) {
       putDraft(null)
       setHint('导线起点与终点重合，已取消')
       return
     }
-    const wire: BWire = { id: nextWireId(build.wires), pts: routeWire(from, to) }
+    const wire: BWire = { id: nextWireId(build.wires), pts }
     setBuild((b) => ({ ...b, wires: [...b.wires, wire] }))
     putDraft(null)
     setHint('')
   }
 
-  /* ---------- svg 指针事件 ---------- */
-
-  /** 画布空白处的点击：优先收尾连线 / 放置元件；返回是否已处理 */
-  const canvasTap = (e: React.PointerEvent): boolean => {
-    if (draftRef.current) {
-      finishWire(snapPt(e))
+  /** 画布空白（含导线本体）上的点击：收折点 / 放置元件；返回是否已处理 */
+  const backgroundTap = (e: React.PointerEvent): boolean => {
+    const d = draftRef.current
+    if (d) {
+      const snap = magnetSnap(rawGrid(e))
+      const pts = appendRoute(d.pts, snap.pt)
+      if (pts.length !== d.pts.length) {
+        // 保持 moved=false：纯点击加折点不应触发 onUp 的「拖拽松手即收尾」
+        putDraft({ pts, to: snap.pt, snap, moved: d.moved })
+        // 吸附到端子/导线折点时直接收尾，符合「连到这里」的直觉
+        if (snap.kind === 'term' || snap.kind === 'vertex') finishWire(snap.pt)
+      }
       return true
     }
     if (armed) {
@@ -294,10 +460,19 @@ export default function CircuitBuilder() {
   }
 
   const onBackgroundDown = (e: React.PointerEvent) => {
-    if (!canvasTap(e)) {
-      setSelComp(null)
-      setSelWire(null)
+    pressRef.current = rawGrid(e)
+    if (backgroundTap(e)) return
+    try {
+      svgRef.current?.setPointerCapture(e.pointerId)
+    } catch {
+      /* 合成事件 / 老浏览器下忽略 */
     }
+    putPan({ start: rawGrid(e), cx: viewRef.current.cx, cy: viewRef.current.cy, moved: false })
+  }
+
+  const onBackgroundDouble = (e: React.MouseEvent) => {
+    if (!draftRef.current) return
+    finishWire(magnetSnap(rawGrid(e)).pt)
   }
 
   const onMove = (e: React.PointerEvent<SVGSVGElement>) => {
@@ -311,10 +486,22 @@ export default function CircuitBuilder() {
       putDrag({ ...curDrag, moved, ghost })
       return
     }
+    const curPan = panRef.current
+    if (curPan) {
+      const moved = curPan.moved || far(g, curPan.start)
+      const c = clampCenter(
+        curPan.cx - (g.x - curPan.start.x) * GRID,
+        curPan.cy - (g.y - curPan.start.y) * GRID,
+      )
+      putPan({ ...curPan, moved })
+      putView({ ...viewRef.current, cx: c.cx, cy: c.cy })
+      return
+    }
     const curDraft = draftRef.current
     if (curDraft) {
       const moved = curDraft.moved || (p0 ? far(g, p0) : false)
-      putDraft({ ...curDraft, to: snapPt(e), moved })
+      const snap = magnetSnap(g)
+      putDraft({ ...curDraft, to: snap.pt, snap, moved })
     }
   }
 
@@ -335,6 +522,15 @@ export default function CircuitBuilder() {
       putDrag(null)
       return
     }
+    const p = panRef.current
+    if (p) {
+      if (!p.moved) {
+        setSelComp(null)
+        setSelWire(null)
+      }
+      putPan(null)
+      return
+    }
     const w = draftRef.current
     if (w && w.moved && w.to) finishWire(w.to)
   }
@@ -342,8 +538,21 @@ export default function CircuitBuilder() {
   const onCancel = () => {
     putDrag(null)
     putDraft(null)
+    putPan(null)
     pressRef.current = null
   }
+
+  /* ---------- 缩放 ---------- */
+
+  const zoomBy = (factor: number) => {
+    const v = viewRef.current
+    const z2 = clamp(v.zoom * factor, Z_MIN, Z_MAX)
+    if (z2 === v.zoom) return
+    const c = clampCenter(v.cx, v.cy)
+    putView({ zoom: z2, cx: c.cx, cy: c.cy })
+  }
+
+  const fitView = () => putView({ zoom: 1, cx: WORLD_W / 2, cy: WORLD_H / 2 })
 
   /* ---------- 属性面板 ---------- */
 
@@ -353,6 +562,10 @@ export default function CircuitBuilder() {
     const v = parseNumber(t)
     if (v === null) {
       setHint('参数无法识别，可写 4.7k、10µ 这样的形式')
+      return
+    }
+    if (selected.wave && v <= 0) {
+      setHint('波形幅值需要大于 0')
       return
     }
     if (!isOutputCurrent(selected.kind) && selected.kind !== 'OA' && selected.kind !== 'GND' && v <= 0) {
@@ -389,6 +602,67 @@ export default function CircuitBuilder() {
     }))
   }
 
+  const onWaveChange = (shape: 'dc' | WaveShape) => {
+    if (!selected) return
+    setHint('')
+    setBuild((b) => ({
+      ...b,
+      comps: b.comps.map((x) =>
+        x.id === selected.id
+          ? shape === 'dc'
+            ? { ...x, wave: undefined, freq: undefined, offset: undefined }
+            : { ...x, wave: shape, offset: x.offset ?? 0 }
+          : x,
+      ),
+    }))
+  }
+
+  const onFreqInput = (t: string) => {
+    setFreqText(t)
+    if (!selected) return
+    if (t.trim() === '') {
+      setHint('')
+      setBuild((b) => ({
+        ...b,
+        comps: b.comps.map((x) => (x.id === selected.id ? { ...x, freq: undefined } : x)),
+      }))
+      return
+    }
+    const v = parseNumber(t)
+    if (v === null || v <= 0) {
+      setHint('频率需要为正数，可写 1k 这样的形式')
+      return
+    }
+    setHint('')
+    setBuild((b) => ({
+      ...b,
+      comps: b.comps.map((x) => (x.id === selected.id ? { ...x, freq: v } : x)),
+    }))
+  }
+
+  const onOffsetInput = (t: string) => {
+    setOffsetText(t)
+    if (!selected) return
+    if (t.trim() === '') {
+      setHint('')
+      setBuild((b) => ({
+        ...b,
+        comps: b.comps.map((x) => (x.id === selected.id ? { ...x, offset: undefined } : x)),
+      }))
+      return
+    }
+    const v = parseNumber(t)
+    if (v === null) {
+      setHint('偏置无法识别')
+      return
+    }
+    setHint('')
+    setBuild((b) => ({
+      ...b,
+      comps: b.comps.map((x) => (x.id === selected.id ? { ...x, offset: v } : x)),
+    }))
+  }
+
   const doRotate = () => {
     if (!selected) return
     const next = rotateComp(selected, build.comps)
@@ -403,7 +677,23 @@ export default function CircuitBuilder() {
     }))
   }
 
+  const putSample = (which: string) => {
+    setBuild(which === 'square-rc' ? squareRcBuild() : sampleBuild())
+    setSelComp(null)
+    setSelWire(null)
+    putDraft(null)
+    setArmed(null)
+    setHint('')
+    fitView()
+  }
+
   /* ---------- 渲染 ---------- */
+
+  const vb = useMemo(() => {
+    const w = VB_W / view.zoom
+    const h = VB_H / view.zoom
+    return { x: view.cx - w / 2, y: view.cy - h / 2, w, h }
+  }, [view])
 
   const junctions = useMemo(() => {
     if (!built.res) return [] as Pt[]
@@ -429,6 +719,8 @@ export default function CircuitBuilder() {
     for (let x = 0; x <= COLS; x++) for (let y = 0; y <= ROWS; y++) out.push({ x, y })
     return out
   }, [])
+
+  const draftPts = draft ? (draft.to ? appendRoute(draft.pts, draft.to) : draft.pts) : []
 
   return (
     <div className="builder">
@@ -458,18 +750,20 @@ export default function CircuitBuilder() {
             ref={svgRef}
             data-canvas
             className={armed || draft ? 'builder-svg crosshair' : 'builder-svg'}
-            viewBox={`${VB_X} ${VB_Y} ${VB_W} ${VB_H}`}
+            viewBox={`${vb.x} ${vb.y} ${vb.w} ${vb.h}`}
             onPointerMove={onMove}
             onPointerUp={onUp}
             onPointerCancel={onCancel}
           >
             <rect
-              x={VB_X}
-              y={VB_Y}
-              width={VB_W}
-              height={VB_H}
+              x={VB_X - VB_W}
+              y={VB_Y - VB_H}
+              width={VB_W * 3}
+              height={VB_H * 3}
               fill="transparent"
+              style={{ cursor: armed || draft ? 'crosshair' : pan?.moved ? 'grabbing' : 'grab' }}
               onPointerDown={onBackgroundDown}
+              onDoubleClick={onBackgroundDouble}
             />
             <g pointerEvents="none">
               {gridDots.map((p) => (
@@ -483,7 +777,7 @@ export default function CircuitBuilder() {
                 w={w}
                 selected={selWire === w.id}
                 onDown={(e) => {
-                  if (canvasTap(e)) return
+                  if (backgroundTap(e)) return
                   setSelWire(w.id)
                   setSelComp(null)
                 }}
@@ -510,20 +804,30 @@ export default function CircuitBuilder() {
               )
             })}
 
-            {draft && draft.to && (
-              <polyline
-                points={routeWire(draft.from, draft.to)
-                  .map((p) => `${px(p.x)},${px(p.y)}`)
-                  .join(' ')}
-                fill="none"
-                stroke={ACCENT}
-                strokeWidth={1.8}
-                strokeDasharray="6 5"
-                pointerEvents="none"
-              />
-            )}
             {draft && (
-              <circle cx={px(draft.from.x)} cy={px(draft.from.y)} r={5} fill={ACCENT} pointerEvents="none" />
+              <g pointerEvents="none">
+                <polyline
+                  points={draftPts.map((p) => `${px(p.x)},${px(p.y)}`).join(' ')}
+                  fill="none"
+                  stroke={ACCENT}
+                  strokeWidth={1.8}
+                  strokeDasharray="6 5"
+                />
+                <circle cx={px(draft.pts[0].x)} cy={px(draft.pts[0].y)} r={5} fill={ACCENT} />
+                {draft.pts.slice(1).map((p, i) => (
+                  <circle key={i} cx={px(p.x)} cy={px(p.y)} r={3.5} fill={ACCENT} />
+                ))}
+                {draft.to && draft.snap && draft.snap.kind !== 'grid' && (
+                  <circle
+                    cx={px(draft.snap.pt.x)}
+                    cy={px(draft.snap.pt.y)}
+                    r={9}
+                    fill="none"
+                    stroke={ACCENT}
+                    strokeWidth={2.2}
+                  />
+                )}
+              </g>
             )}
 
             <g pointerEvents="none">
@@ -547,9 +851,18 @@ export default function CircuitBuilder() {
         </div>
 
         <div className="builder-toolbar">
-          <button type="button" className="mini" onClick={() => setBuild(sampleBuild())}>
-            放入示例
-          </button>
+          <select
+            data-sample-select
+            className="builder-select"
+            value=""
+            onChange={(e) => putSample(e.target.value)}
+          >
+            <option value="" disabled>
+              放入示例…
+            </option>
+            <option value="divider">分压器（直流）</option>
+            <option value="square-rc">RC 方波充放电</option>
+          </select>
           <button
             type="button"
             className="mini ghost"
@@ -564,12 +877,23 @@ export default function CircuitBuilder() {
           >
             清空画布
           </button>
+          <span className="builder-zoom">
+            <button type="button" className="mini ghost" data-act="zoom-out" title="缩小" onClick={() => zoomBy(1 / 1.3)}>
+              －
+            </button>
+            <button type="button" className="mini ghost" data-act="zoom-in" title="放大" onClick={() => zoomBy(1.3)}>
+              ＋
+            </button>
+            <button type="button" className="mini ghost" data-act="zoom-fit" title="显示整页" onClick={fitView}>
+              整页
+            </button>
+          </span>
           <span className="builder-status">
             {armed
               ? `已选「${KIND_LABEL[armed]}」：点击画布放置，Esc 取消`
               : draft
-                ? '拖动或再次点击确定终点，Esc 取消'
-                : '拖动元件移动；端子拖出导线；选中后可改参数'}
+                ? '连线中：点端子/画布加折点，点端子或双击空白收尾，Esc 取消'
+                : '拖元件移动；点端子连线（磁吸对齐）；Ctrl+滚轮缩放，拖空白平移'}
           </span>
         </div>
 
@@ -581,7 +905,7 @@ export default function CircuitBuilder() {
               </span>
               {selected.kind !== 'GND' && selected.kind !== 'OA' && (
                 <label className="insp-field">
-                  参数
+                  {selected.wave ? '幅值' : '参数'}
                   <input
                     data-value-input
                     value={valueText}
@@ -589,6 +913,45 @@ export default function CircuitBuilder() {
                     onChange={(e) => onValueInput(e.target.value)}
                   />
                 </label>
+              )}
+              {(selected.kind === 'V' || selected.kind === 'I') && (
+                <label className="insp-field">
+                  波形
+                  <select
+                    data-wave-select
+                    className="builder-select"
+                    value={selected.wave ?? 'dc'}
+                    onChange={(e) => onWaveChange(e.target.value as 'dc' | WaveShape)}
+                  >
+                    <option value="dc">直流</option>
+                    <option value="sin">正弦波</option>
+                    <option value="square">方波</option>
+                  </select>
+                </label>
+              )}
+              {selected.wave && (
+                <>
+                  <label className="insp-field">
+                    频率
+                    <input
+                      data-freq-input
+                      value={freqText}
+                      placeholder="1k"
+                      spellCheck={false}
+                      onChange={(e) => onFreqInput(e.target.value)}
+                    />
+                  </label>
+                  <label className="insp-field">
+                    偏置
+                    <input
+                      data-offset-input
+                      value={offsetText}
+                      placeholder="0"
+                      spellCheck={false}
+                      onChange={(e) => onOffsetInput(e.target.value)}
+                    />
+                  </label>
+                </>
               )}
               {(selected.kind === 'C' || selected.kind === 'L') && (
                 <label className="insp-field">
@@ -699,6 +1062,15 @@ function PaletteIcon({ kind }: { kind: CompKind }) {
   )
 }
 
+/** 电源圆圈内的波形小图标（正弦 / 方波），cx、cy 为圆心 */
+function WaveIcon({ cx, cy, stroke, shape }: { cx: number; cy: number; stroke: string; shape: WaveShape }) {
+  const d =
+    shape === 'sin'
+      ? `M${cx - 7} ${cy} q3.5 -6.5 7 0 t7 0`
+      : `M${cx - 7} ${cy + 4.5} h4.5 v-9 h5 v9 h4.5`
+  return <path d={d} fill="none" stroke={stroke} strokeWidth={1.5} strokeLinejoin="round" />
+}
+
 function WireGlyph({
   w,
   selected,
@@ -721,7 +1093,7 @@ function WireGlyph({
           data-vertex={`${w.id}:${i}`}
           cx={px(p.x)}
           cy={px(p.y)}
-          r={9}
+          r={11}
           fill="transparent"
           style={{ cursor: 'crosshair' }}
           onPointerDown={(e) => onVertex(e, p)}
@@ -805,11 +1177,14 @@ function CompGlyph({
             <line x1={x0} y1={y0 + 2 * g - 12} x2={x0} y2={y0 + 2 * g} stroke={stroke} strokeWidth={1.7} />
           </>
         )
-      case 'V':
+      case 'V': {
+        const cx = c.orient === 'h' ? x0 + g : x0
+        const cy = c.orient === 'h' ? y0 : y0 + g
         return c.orient === 'h' ? (
           <>
             <line x1={x0} y1={y0} x2={x0 + g - 13} y2={y0} stroke={stroke} strokeWidth={1.7} />
-            <circle cx={x0 + g} cy={y0} r={13} fill="#fff" stroke={stroke} strokeWidth={1.7} />
+            <circle cx={cx} cy={cy} r={13} fill="#fff" stroke={stroke} strokeWidth={1.7} />
+            {c.wave && <WaveIcon cx={cx} cy={cy} stroke={stroke} shape={c.wave} />}
             <line x1={x0 + g + 13} y1={y0} x2={x0 + 2 * g} y2={y0} stroke={stroke} strokeWidth={1.7} />
             <text x={x0 + g + 17} y={y0 + 5} fontSize={13} fill={stroke}>
               +
@@ -821,7 +1196,12 @@ function CompGlyph({
         ) : (
           <>
             <line x1={x0} y1={y0} x2={x0} y2={y0 + g - 13} stroke={stroke} strokeWidth={1.7} />
-            <circle cx={x0} cy={y0 + g} r={13} fill="#fff" stroke={stroke} strokeWidth={1.7} />
+            <circle cx={cx} cy={cy} r={13} fill="#fff" stroke={stroke} strokeWidth={1.7} />
+            {c.wave && (
+              <g transform={`rotate(90 ${cx} ${cy})`}>
+                <WaveIcon cx={cx} cy={cy} stroke={stroke} shape={c.wave} />
+              </g>
+            )}
             <line x1={x0} y1={y0 + g + 13} x2={x0} y2={y0 + 2 * g} stroke={stroke} strokeWidth={1.7} />
             <text x={x0 + 18} y={y0 + g + 5} fontSize={13} fill={stroke}>
               +
@@ -831,32 +1211,51 @@ function CompGlyph({
             </text>
           </>
         )
-      case 'I':
+      }
+      case 'I': {
+        const cx = c.orient === 'h' ? x0 + g : x0
+        const cy = c.orient === 'h' ? y0 : y0 + g
+        const inner = c.wave ? (
+          <g transform={c.orient === 'v' ? `rotate(90 ${cx} ${cy})` : undefined}>
+            <WaveIcon cx={cx} cy={cy - 4} stroke={stroke} shape={c.wave} />
+            <path
+              d={`M${cx - 9} ${cy + 6.5} h13 M${cx + 1} ${cy + 3.1} L${cx + 4} ${cy + 6.5} L${cx + 1} ${cy + 9.9}`}
+              fill="none"
+              stroke={stroke}
+              strokeWidth={1.5}
+            />
+          </g>
+        ) : c.orient === 'h' ? (
+          <path
+            d={`M${cx - 8} ${cy} h16 M${cx + 4} ${cy - 4.5} L${cx + 8} ${cy} L${cx + 4} ${cy + 4.5}`}
+            fill="none"
+            stroke={stroke}
+            strokeWidth={1.7}
+          />
+        ) : (
+          <path
+            d={`M${cx} ${cy - 8} v16 M${cx - 4.5} ${cy + 4} L${cx} ${cy + 8} L${cx + 4.5} ${cy + 4}`}
+            fill="none"
+            stroke={stroke}
+            strokeWidth={1.7}
+          />
+        )
         return c.orient === 'h' ? (
           <>
             <line x1={x0} y1={y0} x2={x0 + g - 13} y2={y0} stroke={stroke} strokeWidth={1.7} />
-            <circle cx={x0 + g} cy={y0} r={13} fill="#fff" stroke={stroke} strokeWidth={1.7} />
-            <path
-              d={`M${x0 + g - 8} ${y0} h16 M${x0 + g + 4} ${y0 - 4.5} L${x0 + g + 8} ${y0} L${x0 + g + 4} ${y0 + 4.5}`}
-              fill="none"
-              stroke={stroke}
-              strokeWidth={1.7}
-            />
+            <circle cx={cx} cy={cy} r={13} fill="#fff" stroke={stroke} strokeWidth={1.7} />
+            {inner}
             <line x1={x0 + g + 13} y1={y0} x2={x0 + 2 * g} y2={y0} stroke={stroke} strokeWidth={1.7} />
           </>
         ) : (
           <>
             <line x1={x0} y1={y0} x2={x0} y2={y0 + g - 13} stroke={stroke} strokeWidth={1.7} />
-            <circle cx={x0} cy={y0 + g} r={13} fill="#fff" stroke={stroke} strokeWidth={1.7} />
-            <path
-              d={`M${x0} ${y0 + g - 8} v16 M${x0 - 4.5} ${y0 + g + 4} L${x0} ${y0 + g + 8} L${x0 + 4.5} ${y0 + g + 4}`}
-              fill="none"
-              stroke={stroke}
-              strokeWidth={1.7}
-            />
+            <circle cx={cx} cy={cy} r={13} fill="#fff" stroke={stroke} strokeWidth={1.7} />
+            {inner}
             <line x1={x0} y1={y0 + g + 13} x2={x0} y2={y0 + 2 * g} stroke={stroke} strokeWidth={1.7} />
           </>
         )
+      }
       case 'OA':
         return c.orient === 'h' ? (
           <>
@@ -961,7 +1360,7 @@ function CompGlyph({
             data-term={`${c.id}:${t.id}`}
             cx={px(t.pt.x)}
             cy={px(t.pt.y)}
-            r={10}
+            r={13}
             fill="transparent"
             style={{ cursor: 'crosshair' }}
             onPointerDown={(e) => {

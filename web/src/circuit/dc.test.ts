@@ -79,6 +79,24 @@ describe('solveDC 直流工作点分析', () => {
     expect(() => solveDC(circuit)).toThrow(CircuitError)
   })
 
+  it('带波形的电源在直流分析中按直流偏置取值', () => {
+    const circuit: Circuit = {
+      elements: [
+        {
+          kind: 'V',
+          id: 'V1',
+          a: '1',
+          b: '0',
+          voltage: 2.5,
+          wave: { shape: 'square', amplitude: 2.5, frequency: 200 },
+        },
+        { kind: 'R', id: 'R1', a: '1', b: '0', resistance: 1000 },
+      ],
+    }
+    const { nodes } = solveDC(circuit)
+    expect(nodes['1']).toBeCloseTo(2.5, 9)
+  })
+
   it('非法参数报 CircuitError', () => {
     const zeroR: Circuit = {
       elements: [

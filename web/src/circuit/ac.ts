@@ -29,10 +29,11 @@ export function solveAC(circuit: Circuit, f: number): ACResult {
         stamps.push({ kind: 'G', a: el.a, b: el.b, y: div(cx(1), cx(0, w * el.inductance)) })
         break
       case 'V':
-        stamps.push({ kind: 'V', id: el.id, a: el.a, b: el.b, v: cx(el.voltage) })
+        // 相量分析的激励取波形幅值（频率由扫频参数决定）；恒压源即 voltage
+        stamps.push({ kind: 'V', id: el.id, a: el.a, b: el.b, v: cx(el.wave ? el.wave.amplitude : el.voltage) })
         break
       case 'I':
-        stamps.push({ kind: 'I', a: el.a, b: el.b, i: cx(el.current) })
+        stamps.push({ kind: 'I', a: el.a, b: el.b, i: cx(el.wave ? el.wave.amplitude : el.current) })
         break
       case 'OA':
         stamps.push({ kind: 'O', id: el.id, p: el.p, n: el.n, out: el.out })

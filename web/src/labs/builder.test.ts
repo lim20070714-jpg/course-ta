@@ -1,17 +1,21 @@
 import { describe, expect, it } from 'vitest'
-import { CircuitError, solveDC } from '../circuit'
+import { CircuitError, solveDC, solveTransient } from '../circuit'
 import {
   canPlace,
   buildCircuit,
   COLS,
+  dcValueOf,
   formatCompValue,
   nextId,
   parseSi,
   ptKey,
+  ROWS,
   rotateComp,
   routeWire,
   sampleBuild,
+  squareRcBuild,
   terminalsOf,
+  waveOf,
   type BComp,
 } from './builder'
 
@@ -62,7 +66,7 @@ describe('放置与旋转', () => {
   })
 
   it('旋转后越界或与其它元件重叠时返回 null', () => {
-    const edge: BComp = { id: 'R1', kind: 'R', x: 22, y: 11, orient: 'h', value: 1000 }
+    const edge: BComp = { id: 'R1', kind: 'R', x: COLS - 2, y: ROWS - 2, orient: 'h', value: 1000 }
     expect(canPlace(edge, [edge])).toBe(false)
     expect(rotateComp(edge, [edge])).toBeNull()
 
@@ -262,10 +266,86 @@ describe('buildCircuit 网表提取', () => {
   })
 })
 
+describe('波形电源映射', () => {
+  it('buildCircuit 把波形源映射为偏置 + 波形定义（缺省频率 1kHz）', () => {
+    const vRes = buildCircuit({
+      comps: [
+        { id: 'V1', kind: 'V', x: 2, y: 2, orient: 'h', value: 2.5, wave: 'sin', offset: 2.5 },
+        { id: 'R1', kind: 'R', x: 6, y: 2, orient: 'h', value: 1000 },
+        { id: 'GND1', kind: 'GND', x: 2, y: 5, orient: 'v', value: 0 },
+      ],
+      wires: [
+        { id: 'W1', pts: [{ x: 4, y: 2 }, { x: 6, y: 2 }] },
+        { id: 'W2', pts: [{ x: 2, y: 2 }, { x: 2, y: 5 }] },
+        { id: 'W3', pts: [{ x: 8, y: 2 }, { x: 8, y: 5 }, { x: 2, y: 5 }] },
+      ],
+    })
+    const v = vRes.circuit.elements.find((el) => el.id === 'V1')
+    expect(v?.kind === 'V' && v.voltage).toBe(2.5)
+    expect(v?.kind === 'V' && v.wave).toEqual({ shape: 'sin', amplitude: 2.5, frequency: 1000 })
+
+    const iRes = buildCircuit({
+      comps: [
+        { id: 'I1', kind: 'I', x: 2, y: 2, orient: 'h', value: 1e-3, wave: 'square', freq: 200, offset: -1 },
+        { id: 'R1', kind: 'R', x: 6, y: 2, orient: 'h', value: 1000 },
+        { id: 'GND1', kind: 'GND', x: 2, y: 5, orient: 'v', value: 0 },
+      ],
+      wires: [
+        { id: 'W1', pts: [{ x: 4, y: 2 }, { x: 6, y: 2 }] },
+        { id: 'W2', pts: [{ x: 2, y: 2 }, { x: 2, y: 5 }] },
+        { id: 'W3', pts: [{ x: 8, y: 2 }, { x: 8, y: 5 }, { x: 2, y: 5 }] },
+      ],
+    })
+    const i = iRes.circuit.elements.find((el) => el.id === 'I1')
+    expect(i?.kind === 'I' && i.current).toBe(-1)
+    expect(i?.kind === 'I' && i.wave).toEqual({ shape: 'square', amplitude: 1e-3, frequency: 200 })
+  })
+
+  it('dcValueOf / waveOf：无波形时取恒值本身', () => {
+    const plain: BComp = { id: 'V1', kind: 'V', x: 0, y: 0, orient: 'h', value: 5 }
+    expect(dcValueOf(plain)).toBe(5)
+    expect(waveOf(plain)).toBeUndefined()
+    const waved: BComp = { ...plain, wave: 'square', freq: 50, value: 3, offset: 4 }
+    expect(dcValueOf(waved)).toBe(4)
+    expect(waveOf(waved)).toEqual({ shape: 'square', amplitude: 3, frequency: 50 })
+  })
+
+  it('RC 方波示例：网表连通正确，瞬态输出为充放电波形', () => {
+    const res = buildCircuit(squareRcBuild())
+    const net = (k: string) => res.netOfTerminal.get(k)
+    expect(net('V1:0')).toBe('0')
+    expect(net('C1:1')).toBe('0')
+    expect(net('GND1:0')).toBe('0')
+    expect(net('V1:1')).toBe(net('R1:0'))
+    expect(net('R1:1')).toBe(net('C1:0'))
+    expect(res.junctions.has('5,10')).toBe(true)
+
+    const tr = solveTransient(res.circuit, { dt: 1e-6, duration: 5e-3 })
+    const vc = tr.nodes[net('C1:0')!]
+    expect(vc[0]).toBe(0)
+    expect(vc[2500]).toBeGreaterThan(4.5)
+    expect(vc[2500]).toBeLessThan(4.65)
+    expect(vc[5000]).toBeGreaterThan(0.3)
+    expect(vc[5000]).toBeLessThan(0.45)
+
+    const dc = solveDC(res.circuit)
+    expect(dc.nodes[net('C1:0')!]).toBeCloseTo(2.5, 9)
+  })
+})
+
 describe('formatCompValue 显示文本', () => {
   it('按元件类型追加单位', () => {
     expect(formatCompValue({ id: 'R1', kind: 'R', x: 0, y: 0, orient: 'h', value: 1000 })).toBe('1 kΩ')
     expect(formatCompValue({ id: 'C1', kind: 'C', x: 0, y: 0, orient: 'h', value: 1e-6 })).toBe('1 µF')
     expect(formatCompValue({ id: 'OA1', kind: 'OA', x: 0, y: 0, orient: 'h', value: 0 })).toBe('')
+  })
+
+  it('波形源附带波形类型', () => {
+    expect(formatCompValue({ id: 'V1', kind: 'V', x: 0, y: 0, orient: 'h', value: 2.5, wave: 'square' })).toBe(
+      '2.5 V 方波',
+    )
+    expect(formatCompValue({ id: 'I1', kind: 'I', x: 0, y: 0, orient: 'h', value: 1e-3, wave: 'sin' })).toBe(
+      '1 mA 正弦',
+    )
   })
 })

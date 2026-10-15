@@ -2308,6 +2308,25 @@ select.kind-select {
   flex-wrap: wrap;
 }
 
+.builder-select {
+  padding: 5px 8px;
+  font-size: 13px;
+  color: #3a4254;
+  background: #fff;
+  border: 1px solid #dfe3ec;
+  border-radius: 8px;
+  outline: none;
+}
+
+.builder-select:focus {
+  border-color: #2f5bd8;
+}
+
+.builder-zoom {
+  display: inline-flex;
+  gap: 4px;
+}
+
 .builder-status {
   font-size: 12px;
   color: #8a91a3;

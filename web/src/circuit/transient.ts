@@ -4,17 +4,26 @@
  * 电容伴随模型（a、b 之间）：导纳 G = C/dt，并联一个向 a 注入 G·v_prev 的电流源；
  * 电感伴随模型：导纳 G = dt/L，并联一个向 a 注入 -i_prev 的电流源。
  * t=0 时刻按初始条件求解：电容等效为电压源 v_prev，电感等效为电流源 i_prev。
+ * 电源带 wave 时按 t 时刻瞬时值激励（见 sourceValue）。
  */
 
 import { cx } from './linalg'
 import { solveStamps, validateCircuit, type RawSolution, type Stamp } from './solver'
-import { CircuitError, type Capacitor, type Circuit, type Inductor } from './types'
+import { CircuitError, type Capacitor, type Circuit, type Inductor, type SourceWave } from './types'
 
 export interface TransientOptions {
   /** 时间步长，单位 s */
   dt: number
   /** 仿真总时长，单位 s */
   duration: number
+}
+
+/** 电源在 t 时刻的瞬时值：base 为直流分量，叠加波形（正弦 / 50% 方波） */
+export function sourceValue(base: number, wave: SourceWave | undefined, t: number): number {
+  if (!wave) return base
+  const s = Math.sin(2 * Math.PI * wave.frequency * t)
+  const carrier = wave.shape === 'sin' ? s : s >= 0 ? 1 : -1
+  return base + wave.amplitude * carrier
 }
 
 export interface TransientResult {
@@ -43,7 +52,7 @@ export function solveTransient(circuit: Circuit, opts: TransientOptions): Transi
   const vPrev = new Map(caps.map((c) => [c.id, c.initialVoltage ?? 0] as const))
   const iPrev = new Map(inds.map((l) => [l.id, l.initialCurrent ?? 0] as const))
 
-  const solvePoint = (companion: boolean): RawSolution => {
+  const solvePoint = (companion: boolean, t: number): RawSolution => {
     const stamps: Stamp[] = []
     for (const el of circuit.elements) {
       switch (el.kind) {
@@ -51,10 +60,10 @@ export function solveTransient(circuit: Circuit, opts: TransientOptions): Transi
           stamps.push({ kind: 'G', a: el.a, b: el.b, y: cx(1 / el.resistance) })
           break
         case 'V':
-          stamps.push({ kind: 'V', id: el.id, a: el.a, b: el.b, v: cx(el.voltage) })
+          stamps.push({ kind: 'V', id: el.id, a: el.a, b: el.b, v: cx(sourceValue(el.voltage, el.wave, t)) })
           break
         case 'I':
-          stamps.push({ kind: 'I', a: el.a, b: el.b, i: cx(el.current) })
+          stamps.push({ kind: 'I', a: el.a, b: el.b, i: cx(sourceValue(el.current, el.wave, t)) })
           break
         case 'C': {
           const g = el.capacitance / dt
@@ -98,7 +107,7 @@ export function solveTransient(circuit: Circuit, opts: TransientOptions): Transi
           i = sol.branchCurrents[el.id].re
           break
         case 'I':
-          i = -el.current
+          i = -sourceValue(el.current, el.wave, time)
           break
         case 'C': {
           if (companion) {
@@ -122,9 +131,9 @@ export function solveTransient(circuit: Circuit, opts: TransientOptions): Transi
     }
   }
 
-  record(0, solvePoint(false), false)
+  record(0, solvePoint(false, 0), false)
   for (let k = 1; k <= steps; k++) {
-    const sol = solvePoint(true)
+    const sol = solvePoint(true, k * dt)
     record(k * dt, sol, true)
     for (const c of caps) vPrev.set(c.id, sol.nodes[c.a].re - sol.nodes[c.b].re)
     for (const l of inds) {

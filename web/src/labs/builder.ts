@@ -6,16 +6,17 @@
  * 两条导线在无端点处交叉不连接（符合电路图约定）。所有接地符号合并为参考节点 "0"。
  */
 
-import { CircuitError, type CircElement, type Circuit } from '../circuit'
+import { CircuitError, type CircElement, type Circuit, type SourceWave } from '../circuit'
 import { formatSi } from './labs'
 
 /** 每格的逻辑像素大小（画布 viewBox 用） */
 export const GRID = 44
-export const COLS = 24
-export const ROWS = 13
+export const COLS = 32
+export const ROWS = 18
 
 export type CompKind = 'R' | 'C' | 'L' | 'V' | 'I' | 'OA' | 'GND'
 export type Orient = 'h' | 'v'
+export type WaveShape = 'sin' | 'square'
 
 export interface BComp {
   /** 元件编号，如 R1、OA2 */
@@ -26,10 +27,19 @@ export interface BComp {
   y: number
   /** h：两端子水平（运放朝右）；v：两端子垂直（运放朝下） */
   orient: Orient
-  /** 参数值：R(Ω) C(F) L(H) V(V) I(A)；GND/OA 未使用 */
+  /**
+   * 参数值：R(Ω) C(F) L(H) V(V) I(A)；GND/OA 未使用。
+   * 电压源/电流源带波形时，value 为振幅（峰值），直流偏置见 offset。
+   */
   value: number
   /** 瞬态分析初始条件：C 为初始电压 v(0端)-v(1端)，L 为沿 0→1 的初始电流 */
   init?: number
+  /** 电压源/电流源的波形类型；缺省为恒定直流源 */
+  wave?: WaveShape
+  /** 波形频率，单位 Hz，默认 1kHz */
+  freq?: number
+  /** 波形的直流偏置，默认 0（仅 wave 存在时有效） */
+  offset?: number
 }
 
 export interface Pt {
@@ -209,10 +219,23 @@ export function parseSi(text: string): number | null {
   return Number.isFinite(v) ? v : null
 }
 
-/** 元件值显示文本，如 "1 kΩ"、"10 µF" */
+/** 元件值显示文本，如 "1 kΩ"、"10 µF"、"2.5 V 方波" */
 export function formatCompValue(c: BComp): string {
   if (c.kind === 'GND' || c.kind === 'OA') return ''
-  return formatSi(c.value, VALUE_UNIT[c.kind])
+  const base = formatSi(c.value, VALUE_UNIT[c.kind])
+  if (!c.wave) return base
+  return `${base} ${c.wave === 'sin' ? '正弦' : '方波'}`
+}
+
+/** 波形源的直流偏置（无波形时即恒值本身，供直流分析使用） */
+export function dcValueOf(c: BComp): number {
+  return c.wave ? (c.offset ?? 0) : c.value
+}
+
+/** 转换为引擎波形定义；无波形返回 undefined */
+export function waveOf(c: BComp): SourceWave | undefined {
+  if (!c.wave) return undefined
+  return { shape: c.wave, amplitude: c.value, frequency: c.freq ?? 1000 }
 }
 
 interface NetInfo {
@@ -423,10 +446,24 @@ export function buildCircuit(build: Build): BuildResult {
         })
         break
       case 'V':
-        elements.push({ kind: 'V', id: c.id, a: nameOf(c.id, '1'), b: nameOf(c.id, '0'), voltage: c.value })
+        elements.push({
+          kind: 'V',
+          id: c.id,
+          a: nameOf(c.id, '1'),
+          b: nameOf(c.id, '0'),
+          voltage: dcValueOf(c),
+          wave: waveOf(c),
+        })
         break
       case 'I':
-        elements.push({ kind: 'I', id: c.id, a: nameOf(c.id, '1'), b: nameOf(c.id, '0'), current: c.value })
+        elements.push({
+          kind: 'I',
+          id: c.id,
+          a: nameOf(c.id, '1'),
+          b: nameOf(c.id, '0'),
+          current: dcValueOf(c),
+          wave: waveOf(c),
+        })
         break
       case 'OA':
         elements.push({
@@ -443,7 +480,7 @@ export function buildCircuit(build: Build): BuildResult {
   return { circuit: { elements }, netOfTerminal, netNameAtPoint, junctions }
 }
 
-/** 示例：12V 分压器（8V 输出），供「放入示例」按钮使用 */
+/** 示例：12V 分压器（8V 输出），供示例选择器使用 */
 export function sampleBuild(): Build {
   return {
     comps: [
@@ -456,6 +493,23 @@ export function sampleBuild(): Build {
       { id: 'W1', pts: [{ x: 2, y: 4 }, { x: 2, y: 9 }, { x: 5, y: 9 }] },
       { id: 'W2', pts: [{ x: 4, y: 4 }, { x: 5, y: 4 }] },
       { id: 'W3', pts: [{ x: 5, y: 6 }, { x: 5, y: 7 }] },
+    ],
+  }
+}
+
+/** 示例：RC 方波充放电（τ=1ms，方波 200Hz，5V 峰峰值带 2.5V 偏置） */
+export function squareRcBuild(): Build {
+  return {
+    comps: [
+      { id: 'V1', kind: 'V', x: 2, y: 6, orient: 'h', value: 2.5, wave: 'square', freq: 200, offset: 2.5 },
+      { id: 'R1', kind: 'R', x: 6, y: 6, orient: 'h', value: 1000 },
+      { id: 'C1', kind: 'C', x: 8, y: 7, orient: 'v', value: 1e-6 },
+      { id: 'GND1', kind: 'GND', x: 5, y: 10, orient: 'v', value: 0 },
+    ],
+    wires: [
+      { id: 'W1', pts: [{ x: 4, y: 6 }, { x: 6, y: 6 }] },
+      { id: 'W2', pts: [{ x: 8, y: 6 }, { x: 8, y: 7 }] },
+      { id: 'W3', pts: [{ x: 8, y: 9 }, { x: 8, y: 10 }, { x: 2, y: 10 }, { x: 2, y: 6 }] },
     ],
   }
 }

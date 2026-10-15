@@ -33,13 +33,28 @@ export interface Inductor {
   initialCurrent?: number
 }
 
+/**
+ * 电源波形：v(t) = base + amplitude·f(t)，
+ * 正弦 f = sin(2πft)，方波 f = sign(sin(2πft))（占空比 50%，t=0 起为正）。
+ * base 即元件自身的 voltage/current 字段（直流分量 / 偏置）。
+ */
+export interface SourceWave {
+  shape: 'sin' | 'square'
+  /** 振幅（峰值），单位同元件值 */
+  amplitude: number
+  /** 频率，单位 Hz */
+  frequency: number
+}
+
 export interface VoltageSource {
   kind: 'V'
   id: string
   a: string
   b: string
-  /** 理想电压源，约束 v(a) - v(b) = voltage */
+  /** 理想电压源：直流值或波形的直流偏置，约束 v(a) - v(b) = 该值 */
   voltage: number
+  /** 瞬态分析中的时变波形；缺省为恒定直流源 */
+  wave?: SourceWave
 }
 
 export interface CurrentSource {
@@ -47,8 +62,10 @@ export interface CurrentSource {
   id: string
   a: string
   b: string
-  /** 电流源将 current 安培沿 b→a 方向泵过自身，外部电路中电流由 a 流向 b */
+  /** 电流源将 current 安培沿 b→a 方向泵过自身，外部电路中电流由 a 流向 b；含波形时为直流偏置 */
   current: number
+  /** 瞬态分析中的时变波形；缺省为恒定直流源 */
+  wave?: SourceWave
 }
 
 export interface OpAmp {

@@ -52,6 +52,26 @@ describe('solveAC 交流相量分析', () => {
     expect(phaseDeg(nodes['2'])).toBeCloseTo(45, 6)
   })
 
+  it('带波形的电源在相量分析中按幅值激励（频率由扫频参数决定）', () => {
+    const circuit: Circuit = {
+      elements: [
+        {
+          kind: 'V',
+          id: 'V1',
+          a: '1',
+          b: '0',
+          voltage: 0,
+          wave: { shape: 'sin', amplitude: 3, frequency: 500 },
+        },
+        { kind: 'R', id: 'R1', a: '1', b: '2', resistance: 1000 },
+        { kind: 'R', id: 'R2', a: '2', b: '0', resistance: 2000 },
+      ],
+    }
+    const { nodes } = solveAC(circuit, 1000)
+    expect(magnitude(nodes['2'])).toBeCloseTo(2, 9) // 3 × 2/3
+    expect(phaseDeg(nodes['2'])).toBeCloseTo(0, 9)
+  })
+
   it('非法频率报 CircuitError', () => {
     expect(() => solveAC(RC_LOWPASS, 0)).toThrow(CircuitError)
     expect(() => solveAC(RC_LOWPASS, -10)).toThrow(CircuitError)
