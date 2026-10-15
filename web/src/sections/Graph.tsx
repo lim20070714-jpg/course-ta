@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CourseGraph, GraphNode } from '../api'
 import { getCourseGraph, regenerateGraph } from '../api'
 import RichText from '../components/RichText'
-import { layoutGraph, moduleOrder } from '../graph/layout'
+import { fitView, layoutMindMap, moduleOrder, type Direction, type View } from '../graph/layout'
 
 const MODULE_COLORS = [
   '#2f5bd8',
@@ -15,23 +15,8 @@ const MODULE_COLORS = [
   '#4338ca',
 ]
 
-const WORLD_W = 1180
-const WORLD_H = 780
-const NODE_R = 14
-const MIN_WORLD_W = 360
-const MIN_WORLD_H = 260
-
-interface View {
-  x: number
-  y: number
-  w: number
-  h: number
-}
-
-interface World {
-  w: number
-  h: number
-}
+const HORIZONTAL_MIN_W = 1080
+const DEFAULT_VIEW: View = { x: 0, y: 0, w: 900, h: 600 }
 
 export default function Graph({
   courseId,
@@ -48,9 +33,11 @@ export default function Graph({
   const [query, setQuery] = useState('')
   const [moduleFilter, setModuleFilter] = useState('')
   const [panelOpen, setPanelOpen] = useState(false)
-  const [view, setView] = useState<View>({ x: 0, y: 0, w: WORLD_W, h: WORLD_H })
-  const [world, setWorld] = useState<World>({ w: WORLD_W, h: WORLD_H })
+  const [size, setSize] = useState({ w: 0, h: 0 })
+  const [userView, setUserView] = useState<View | null>(null)
   const svgRef = useRef<SVGSVGElement>(null)
+  const dirRef = useRef<Direction>('vertical')
+  const viewRef = useRef<View>(DEFAULT_VIEW)
   const dragRef = useRef<{ x: number; y: number; view: View; moved: boolean } | null>(null)
 
   useEffect(() => {
@@ -61,6 +48,7 @@ export default function Graph({
         setSelected(null)
         setNotice('')
         setPanelOpen(false)
+        setUserView(null)
       })
       .catch((e: Error) => setNotice(e.message))
   }, [courseId])
@@ -84,14 +72,13 @@ export default function Graph({
     const onWheel = (e: WheelEvent) => {
       e.preventDefault()
       const rect = svg.getBoundingClientRect()
-      setView((v) => {
-        const factor = e.deltaY < 0 ? 0.86 : 1.16
-        const w = Math.min(Math.max(v.w * factor, 240), 3200)
-        const h = w * (v.h / v.w)
-        const px = rect.width ? (e.clientX - rect.left) / rect.width : 0.5
-        const py = rect.height ? (e.clientY - rect.top) / rect.height : 0.5
-        return { x: v.x + (v.w - w) * px, y: v.y + (v.h - h) * py, w, h }
-      })
+      const v = viewRef.current
+      const factor = e.deltaY < 0 ? 0.86 : 1.16
+      const w = Math.min(Math.max(v.w * factor, 240), 3200)
+      const h = w * (v.h / v.w)
+      const px = rect.width ? (e.clientX - rect.left) / rect.width : 0.5
+      const py = rect.height ? (e.clientY - rect.top) / rect.height : 0.5
+      setUserView({ x: v.x + (v.w - w) * px, y: v.y + (v.h - h) * py, w, h })
     }
     svg.addEventListener('wheel', onWheel, { passive: false })
     return () => svg.removeEventListener('wheel', onWheel)
@@ -101,14 +88,18 @@ export default function Graph({
     if (!ready) return
     const svg = svgRef.current
     if (!svg) return
-    // 世界坐标跟随画布实际尺寸：布局按容器宽高比展开，避免固定 1180×780 留白、整体缩得太小
+    // 宽屏横向思维导图 / 窄屏竖向大纲自动切换；切换时回到自适应视窗
     const measure = () => {
       const rect = svg.getBoundingClientRect()
       if (rect.width < 40 || rect.height < 40) return
-      const w = Math.max(MIN_WORLD_W, Math.round(rect.width))
-      const h = Math.max(MIN_WORLD_H, Math.round(rect.height))
-      setWorld((prev) => (prev.w === w && prev.h === h ? prev : { w, h }))
-      setView({ x: 0, y: 0, w, h })
+      const w = Math.round(rect.width)
+      const h = Math.round(rect.height)
+      setSize((prev) => (prev.w === w && prev.h === h ? prev : { w, h }))
+      const nextDir: Direction = w >= HORIZONTAL_MIN_W ? 'horizontal' : 'vertical'
+      if (nextDir !== dirRef.current) {
+        dirRef.current = nextDir
+        setUserView(null)
+      }
     }
     const timer = setTimeout(measure, 0)
     window.addEventListener('resize', measure)
@@ -120,13 +111,24 @@ export default function Graph({
 
   const modules = useMemo(() => (graph ? moduleOrder(graph.nodes) : []), [graph])
   const moduleIndex = useMemo(() => new Map(modules.map((m, i) => [m, i])), [modules])
-  const positions = useMemo(
-    () =>
-      ready
-        ? layoutGraph(graph.nodes, graph.edges, world.w, world.h)
-        : new Map<number, { x: number; y: number }>(),
-    [ready, graph, world],
+  const moduleOf = useMemo(
+    () => new Map((graph?.nodes ?? []).map((n) => [n.id, n.module])),
+    [graph],
   )
+  const direction: Direction = size.w >= HORIZONTAL_MIN_W ? 'horizontal' : 'vertical'
+  const mind = useMemo(
+    () => (ready && graph ? layoutMindMap(graph.nodes, graph.edges, direction) : null),
+    [ready, graph, direction],
+  )
+  const autoView = useMemo(
+    () => (mind && size.w > 0 ? fitView(mind.world, size, direction) : null),
+    [mind, size, direction],
+  )
+  const view = userView ?? autoView ?? DEFAULT_VIEW
+  useEffect(() => {
+    viewRef.current = view
+  })
+
   const related = useMemo(() => {
     if (!graph || selected === null) return []
     const byId = new Map(graph.nodes.map((n) => [n.id, n]))
@@ -170,16 +172,15 @@ export default function Graph({
   }
 
   function zoomBy(factor: number) {
-    setView((v) => {
-      const w = Math.min(Math.max(v.w * factor, 240), 3200)
-      const h = w * (v.h / v.w)
-      return { x: v.x + (v.w - w) / 2, y: v.y + (v.h - h) / 2, w, h }
-    })
+    const v = viewRef.current
+    const w = Math.min(Math.max(v.w * factor, 240), 3200)
+    const h = w * (v.h / v.w)
+    setUserView({ x: v.x + (v.w - w) / 2, y: v.y + (v.h - h) / 2, w, h })
   }
 
   function onPointerDown(e: React.PointerEvent<SVGSVGElement>) {
     if (e.button !== 0) return
-    dragRef.current = { x: e.clientX, y: e.clientY, view, moved: false }
+    dragRef.current = { x: e.clientX, y: e.clientY, view: viewRef.current, moved: false }
     e.currentTarget.setPointerCapture(e.pointerId)
   }
 
@@ -191,7 +192,12 @@ export default function Graph({
     const dx = ((e.clientX - drag.x) / Math.max(1, rect.width)) * drag.view.w
     const dy = ((e.clientY - drag.y) / Math.max(1, rect.height)) * drag.view.h
     if (Math.abs(e.clientX - drag.x) + Math.abs(e.clientY - drag.y) > 3) drag.moved = true
-    setView({ x: drag.view.x - dx, y: drag.view.y - dy, w: drag.view.w, h: drag.view.h })
+    setUserView({
+      x: drag.view.x - dx,
+      y: drag.view.y - dy,
+      w: drag.view.w,
+      h: drag.view.h,
+    })
   }
 
   function onPointerUp() {
@@ -301,8 +307,8 @@ export default function Graph({
               <>
                 <h2>知识图谱 · 学科脉络</h2>
                 <p>
-                  把课程材料总结归纳成核心概念，按模块串成学习顺序，标出概念间的前置与相关关系；
-                  点击概念可跳回原课件页码，并查看相关真题。
+                  把课程材料总结归纳成核心概念，按模块分支成思维导图，概念沿学习顺序串联，
+                  前置用箭头、相关用虚线；点击概念可跳回原课件页码，并查看相关真题。
                 </p>
                 <button onClick={regenerate}>生成知识图谱</button>
               </>
@@ -324,13 +330,10 @@ export default function Graph({
               <button className="mini ghost" onClick={() => zoomBy(1.16)} title="缩小">
                 －
               </button>
-              <button
-                className="mini ghost"
-                onClick={() => setView({ x: 0, y: 0, w: world.w, h: world.h })}
-              >
+              <button className="mini ghost" onClick={() => setUserView(null)}>
                 重置
               </button>
-              <span className="graph-hint">滚轮缩放 · 拖拽平移 · 点击节点看详情</span>
+              <span className="graph-hint">滚轮缩放 · 拖拽平移 · 点击概念看详情</span>
             </div>
             <svg
               ref={svgRef}
@@ -365,36 +368,23 @@ export default function Graph({
                 </marker>
               </defs>
               <g className="graph-edges">
-                {graph.edges.map((edge, i) => {
-                  const a = positions.get(edge.source)
-                  const b = positions.get(edge.target)
-                  if (!a || !b) return null
+                {mind?.edges.map((edge) => {
                   const active = selected !== null && (edge.source === selected || edge.target === selected)
-                  const dimmed = moduleFilter !== '' && !active
-                  const dx = b.x - a.x
-                  const dy = b.y - a.y
-                  const dist = Math.hypot(dx, dy) || 1
-                  const off = NODE_R + (edge.relation === 'prerequisite' ? 5 : 1)
-                  const x1 = a.x + (dx / dist) * off
-                  const y1 = a.y + (dy / dist) * off
-                  const x2 = b.x - (dx / dist) * off
-                  const y2 = b.y - (dy / dist) * off
+                  const dimmed =
+                    !active &&
+                    moduleFilter !== '' &&
+                    !(
+                      moduleOf.get(edge.source) === moduleFilter &&
+                      moduleOf.get(edge.target) === moduleFilter
+                    )
+                  const cls = `graph-edge${
+                    edge.relation === 'prerequisite' ? ' prereq' : ' related'
+                  }${active ? ' active' : ''}`
                   return (
-                    <line
-                      key={i}
-                      x1={x1}
-                      y1={y1}
-                      x2={x2}
-                      y2={y2}
-                      className={
-                        edge.relation === 'prerequisite'
-                          ? active
-                            ? 'graph-edge prereq active'
-                            : 'graph-edge prereq'
-                          : active
-                            ? 'graph-edge related active'
-                            : 'graph-edge related'
-                      }
+                    <path
+                      key={edge.key}
+                      d={edge.d}
+                      className={cls}
                       opacity={dimmed ? 0.12 : 1}
                       markerEnd={
                         edge.relation === 'prerequisite'
@@ -407,33 +397,91 @@ export default function Graph({
                   )
                 })}
               </g>
-              <g className="graph-nodes">
+              <g className="graph-chips">
+                {mind?.chips.map((chip) => {
+                  const dimmed = moduleFilter !== '' && chip.module !== moduleFilter
+                  return (
+                    <g
+                      key={chip.module}
+                      className="graph-chip"
+                      opacity={dimmed ? 0.25 : 1}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={() =>
+                        setModuleFilter(moduleFilter === chip.module ? '' : chip.module)
+                      }
+                    >
+                      <title>{`${chip.module}：${chip.count} 个概念（点击筛选）`}</title>
+                      <rect
+                        x={chip.x}
+                        y={chip.y}
+                        width={chip.w}
+                        height={chip.h}
+                        rx={8}
+                        fill={colorOf(chip.module)}
+                      />
+                      <text
+                        x={chip.x + 10}
+                        y={chip.y + chip.h / 2}
+                        dominantBaseline="central"
+                        className="graph-chip-label"
+                      >
+                        {chip.module.length > 8 ? `${chip.module.slice(0, 8)}…` : chip.module}
+                      </text>
+                      <text
+                        x={chip.x + chip.w - 10}
+                        y={chip.y + chip.h / 2}
+                        textAnchor="end"
+                        dominantBaseline="central"
+                        className="graph-chip-count"
+                      >
+                        {chip.count}
+                      </text>
+                    </g>
+                  )
+                })}
+              </g>
+              <g className="graph-pills">
                 {graph.nodes.map((node) => {
-                  const p = positions.get(node.id)
+                  const p = mind?.pills.get(node.id)
                   if (!p) return null
                   const active = selected === node.id
                   const dimmed = moduleFilter !== '' && node.module !== moduleFilter
+                  const color = colorOf(node.module)
                   return (
                     <g
                       key={node.id}
-                      className={active ? 'graph-node active' : 'graph-node'}
-                      opacity={dimmed ? 0.2 : 1}
+                      className={active ? 'graph-pill active' : 'graph-pill'}
+                      opacity={dimmed ? 0.22 : 1}
                       style={{ cursor: 'pointer' }}
                       onPointerDown={(e) => e.stopPropagation()}
                       onClick={() => setSelected(node.id)}
                     >
-                      <title>{node.name}</title>
-                      <circle cx={p.x} cy={p.y} r={active ? NODE_R + 3 : NODE_R} fill={colorOf(node.module)} />
+                      <title>{`${node.name}（${node.module}）`}</title>
+                      <rect
+                        x={p.x}
+                        y={p.y}
+                        width={p.w}
+                        height={p.h}
+                        rx={9}
+                        fill={active ? `${color}1f` : '#fff'}
+                        stroke={color}
+                      />
                       {node.problems.length > 0 && (
                         <circle
-                          cx={p.x + NODE_R - 3}
-                          cy={p.y - NODE_R + 3}
-                          r={5}
+                          cx={p.x + p.w - 7}
+                          cy={p.y + 7}
+                          r={4.5}
                           className="graph-problem-dot"
                         />
                       )}
-                      <text x={p.x} y={p.y + NODE_R + 16} textAnchor="middle" className="graph-label">
-                        {node.name.length > 10 ? `${node.name.slice(0, 10)}…` : node.name}
+                      <text
+                        x={p.x + p.w / 2}
+                        y={p.y + p.h / 2}
+                        textAnchor="middle"
+                        dominantBaseline="central"
+                        className="graph-pill-label"
+                      >
+                        {node.name}
                       </text>
                     </g>
                   )
@@ -521,7 +569,7 @@ export default function Graph({
               <p className="empty">没有总览文本</p>
             )}
             <p className="graph-tip">
-              共 {graph.nodes.length} 个概念、{graph.edges.length} 条关系；点击画布中的节点查看解释、出处页与相关题目。
+              共 {graph.nodes.length} 个概念、{graph.edges.length} 条关系；点击画布中的概念查看解释、出处页与相关题目。
             </p>
           </div>
         ) : null}

@@ -908,6 +908,7 @@ button.citation:hover:not(:disabled) {
 }
 
 .graph-edge {
+  fill: none;
   stroke: #c3cbdd;
   stroke-width: 1.6;
 }
@@ -922,32 +923,58 @@ button.citation:hover:not(:disabled) {
   stroke-width: 2.4;
 }
 
-.graph-node circle {
-  stroke: #fff;
-  stroke-width: 2;
-  transition: r 0.12s ease;
+.graph-pill rect {
+  stroke-width: 1.4;
+  transition: stroke-width 0.12s ease;
 }
 
-.graph-node.active circle {
-  stroke: #1f2430;
+.graph-pill:hover rect {
+  stroke-width: 2;
+}
+
+.graph-pill.active rect {
+  stroke-width: 2.4;
+}
+
+.graph-pill-label {
+  font-size: 13px;
+  fill: #3a4356;
+  pointer-events: none;
+  user-select: none;
+}
+
+.graph-pill.active .graph-pill-label {
+  fill: #1f2430;
+  font-weight: 600;
+}
+
+.graph-chip rect {
+  transition: opacity 0.12s ease;
+}
+
+.graph-chip:hover rect {
+  opacity: 0.85;
+}
+
+.graph-chip-label {
+  font-size: 12px;
+  font-weight: 600;
+  fill: #fff;
+  pointer-events: none;
+  user-select: none;
+}
+
+.graph-chip-count {
+  font-size: 11px;
+  fill: rgba(255, 255, 255, 0.85);
+  pointer-events: none;
+  user-select: none;
 }
 
 .graph-problem-dot {
   fill: #f59e0b;
   stroke: #fff !important;
   stroke-width: 1.5 !important;
-}
-
-.graph-label {
-  font-size: 12px;
-  fill: #444c5e;
-  pointer-events: none;
-  user-select: none;
-}
-
-.graph-node.active .graph-label {
-  fill: #1f2430;
-  font-weight: 600;
 }
 
 .graph-side {
@@ -2003,6 +2030,39 @@ button.link.danger {
 .symbol-add input {
   font-size: 13px;
   padding: 6px 8px;
+}
+
+/* 计算台：窄屏改纵向堆叠（三栏会把输入区挤到不可用），主区域排最前 */
+@media (max-width: 1100px) {
+  .compute-page {
+    flex-direction: column;
+    overflow-y: auto;
+  }
+
+  .compute-main {
+    order: 1;
+    flex: none;
+    overflow-y: visible;
+    padding: 14px 14px 18px;
+  }
+
+  .compute-side {
+    order: 2;
+    width: auto;
+    flex-shrink: 0;
+    border-right: 0;
+    border-top: 1px solid #e4e7ee;
+    overflow-y: visible;
+  }
+
+  .compute-symbols {
+    order: 3;
+    width: auto;
+    flex-shrink: 0;
+    border-left: 0;
+    border-top: 1px solid #e4e7ee;
+    overflow-y: visible;
+  }
 }
 
 /* ===== 材料类型（kind）===== */
