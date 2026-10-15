@@ -12,6 +12,17 @@ def from_blob(blob: bytes) -> np.ndarray:
     return np.frombuffer(blob, dtype=np.float32)
 
 
+def search_text(session: Session, course_id: int, query: str, limit: int) -> list[Chunk]:
+    """课程内全文子串检索（大小写不敏感），按材料与页码顺序返回。"""
+    stmt = (
+        select(Chunk)
+        .where(Chunk.course_id == course_id, Chunk.text.ilike(f"%{query}%"))
+        .order_by(Chunk.material_id, Chunk.page, Chunk.seq)
+        .limit(limit)
+    )
+    return list(session.exec(stmt).all())
+
+
 def search_chunks(
     session: Session, course_id: int, query_vec: list[float], top_k: int
 ) -> list[tuple[Chunk, float]]:

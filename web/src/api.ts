@@ -13,9 +13,36 @@ export interface Material {
 }
 
 export interface Citation {
+  material_id: number
   material: string
   page: number
   snippet: string
+}
+
+export interface PageOut {
+  page: number
+  text: string
+}
+
+export interface MaterialPages {
+  material_id: number
+  filename: string
+  page_count: number
+  offset: number
+  limit: number
+  pages: PageOut[]
+}
+
+export interface SearchHit {
+  material_id: number
+  material: string
+  page: number
+  snippet: string
+}
+
+export interface SearchResponse {
+  query: string
+  hits: SearchHit[]
 }
 
 export interface ChatTurn {
@@ -42,6 +69,16 @@ export const createCourse = (name: string) =>
 
 export const listMaterials = (courseId: number) =>
   fetch(`/api/courses/${courseId}/materials`).then((r) => json<Material[]>(r))
+
+export const materialPages = (materialId: number, offset = 0, limit = 20) =>
+  fetch(`/api/materials/${materialId}/pages?offset=${offset}&limit=${limit}`).then((r) =>
+    json<MaterialPages>(r),
+  )
+
+export const searchCourse = (courseId: number, q: string, limit = 30) =>
+  fetch(`/api/courses/${courseId}/search?q=${encodeURIComponent(q)}&limit=${limit}`).then((r) =>
+    json<SearchResponse>(r),
+  )
 
 export async function uploadMaterial(courseId: number, file: File): Promise<Material> {
   const form = new FormData()

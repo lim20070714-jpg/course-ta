@@ -1,32 +1,25 @@
-import { useEffect, useRef, useState } from 'react'
-import type { ChatTurn, Citation, Course, Material } from './api'
-import {
-  createCourse,
-  listCourses,
-  listMaterials,
-  streamChat,
-  uploadMaterial,
-} from './api'
+import { useEffect, useState } from 'react'
+import type { Course } from './api'
+import { createCourse, listCourses } from './api'
 import LabPage from './components/LabPage'
+import Library from './sections/Library'
 
-interface Message {
-  role: 'user' | 'assistant'
-  content: string
-  citations?: Citation[]
-}
+type Tab = 'library' | 'bank' | 'graph' | 'lab'
+
+const TABS: { id: Tab; label: string }[] = [
+  { id: 'library', label: '课程资料' },
+  { id: 'bank', label: '题库与解答' },
+  { id: 'graph', label: '知识图谱' },
+  { id: 'lab', label: '电路实验台' },
+]
 
 export default function App() {
-  const [tab, setTab] = useState<'chat' | 'lab'>('chat')
+  const [tab, setTab] = useState<Tab>('library')
   const [courses, setCourses] = useState<Course[]>([])
   const [activeCourseId, setActiveCourseId] = useState<number | null>(null)
-  const [materials, setMaterials] = useState<Material[]>([])
-  const [messages, setMessages] = useState<Message[]>([])
-  const [input, setInput] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [newCourseName, setNewCourseName] = useState('')
+  const [creating, setCreating] = useState(false)
+  const [newName, setNewName] = useState('')
   const [notice, setNotice] = useState('')
-  const bottomRef = useRef<HTMLDivElement>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     listCourses()
@@ -37,84 +30,18 @@ export default function App() {
       .catch((e: Error) => setNotice(`加载课程失败：${e.message}`))
   }, [])
 
-  useEffect(() => {
-    if (activeCourseId !== null) refreshMaterials(activeCourseId)
-  }, [activeCourseId])
-
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
-
-  function selectCourse(id: number) {
-    setActiveCourseId(id)
-    setMessages([])
-  }
-
-  function refreshMaterials(courseId: number) {
-    listMaterials(courseId)
-      .then(setMaterials)
-      .catch((e: Error) => setNotice(`加载材料失败：${e.message}`))
-  }
-
-  async function handleCreateCourse() {
-    const name = newCourseName.trim()
+  async function handleCreate() {
+    const name = newName.trim()
     if (!name) return
     try {
       const course = await createCourse(name)
       setCourses((cs) => [...cs, course])
-      selectCourse(course.id)
-      setNewCourseName('')
-    } catch (e) {
-      setNotice((e as Error).message)
-    }
-  }
-
-  async function handleUpload(file: File) {
-    if (activeCourseId === null) return
-    setNotice(`正在上传 ${file.name}，上传后自动解析入库…`)
-    try {
-      await uploadMaterial(activeCourseId, file)
+      setActiveCourseId(course.id)
+      setNewName('')
+      setCreating(false)
       setNotice('')
-      setTimeout(() => refreshMaterials(activeCourseId), 1500)
     } catch (e) {
       setNotice((e as Error).message)
-    }
-  }
-
-  async function handleSend() {
-    const question = input.trim()
-    if (!question || busy || activeCourseId === null) return
-    const history: ChatTurn[] = messages
-      .filter((m) => m.content)
-      .map((m) => ({ role: m.role, content: m.content }))
-    setInput('')
-    setMessages((ms) => [
-      ...ms,
-      { role: 'user', content: question },
-      { role: 'assistant', content: '' },
-    ])
-    setBusy(true)
-    setNotice('')
-    const patchLast = (patch: (m: Message) => Message) =>
-      setMessages((ms) => {
-        const next = [...ms]
-        next[next.length - 1] = patch(next[next.length - 1])
-        return next
-      })
-    try {
-      await streamChat({
-        courseId: activeCourseId,
-        question,
-        history,
-        onCitations: (citations) => patchLast((m) => ({ ...m, citations })),
-        onDelta: (text) => patchLast((m) => ({ ...m, content: m.content + text })),
-      })
-    } catch (e) {
-      const message = (e as Error).message
-      setNotice(message)
-      patchLast((m) => (m.content ? m : { ...m, content: `（出错了：${message}）` }))
-    } finally {
-      setBusy(false)
     }
   }
 
@@ -122,139 +49,106 @@ export default function App() {
     <div className="app-shell">
       <nav className="topbar">
         <span className="brand-mini">CourseTA</span>
-        <button
-          className={tab === 'chat' ? 'tab active' : 'tab'}
-          onClick={() => setTab('chat')}
-        >
-          AI 助教
-        </button>
-        <button className={tab === 'lab' ? 'tab active' : 'tab'} onClick={() => setTab('lab')}>
-          电路实验台
-        </button>
+        {TABS.map((t) => (
+          <button
+            key={t.id}
+            className={tab === t.id ? 'tab active' : 'tab'}
+            onClick={() => setTab(t.id)}
+          >
+            {t.label}
+          </button>
+        ))}
+        <div className="topbar-right">
+          {creating ? (
+            <>
+              <input
+                className="course-new"
+                placeholder="新课程名称，如：电子电路与系统基础"
+                value={newName}
+                autoFocus
+                onChange={(e) => setNewName(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
+              />
+              <button className="mini" onClick={handleCreate} disabled={!newName.trim()}>
+                创建
+              </button>
+              <button
+                className="mini ghost"
+                onClick={() => {
+                  setCreating(false)
+                  setNewName('')
+                }}
+              >
+                取消
+              </button>
+            </>
+          ) : (
+            <>
+              <select
+                className="course-select"
+                value={activeCourseId ?? ''}
+                onChange={(e) => setActiveCourseId(Number(e.target.value))}
+              >
+                {courses.length === 0 && <option value="">（暂无课程）</option>}
+                {courses.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+              <button className="mini ghost" onClick={() => setCreating(true)}>
+                ＋ 新建课程
+              </button>
+            </>
+          )}
+        </div>
       </nav>
 
+      {notice && <div className="notice">{notice}</div>}
+
+      {tab === 'library' && <Library key={activeCourseId ?? 'none'} courseId={activeCourseId} />}
       {tab === 'lab' && <LabPage />}
-
-      {tab === 'chat' && (
-        <div className="app">
-          <aside className="sidebar">
-            <p className="brand-sub">课程 AI 助教 · 回答带引用</p>
-
-            <div className="section-title">课程</div>
-            <ul className="course-list">
-              {courses.map((c) => (
-                <li key={c.id}>
-                  <button
-                    className={c.id === activeCourseId ? 'course active' : 'course'}
-                    onClick={() => selectCourse(c.id)}
-                  >
-                    {c.name}
-                  </button>
-                </li>
-              ))}
-            </ul>
-            <div className="row">
-              <input
-                placeholder="新建课程，如：电子电路与系统基础"
-                value={newCourseName}
-                onChange={(e) => setNewCourseName(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleCreateCourse()}
-              />
-              <button onClick={handleCreateCourse}>新建</button>
-            </div>
-
-            <div className="section-title">
-              材料
-              <button
-                className="link"
-                onClick={() => activeCourseId !== null && refreshMaterials(activeCourseId)}
-              >
-                刷新
-              </button>
-            </div>
-            <ul className="material-list">
-              {materials.map((m) => (
-                <li key={m.id} title={m.error || m.filename}>
-                  <span className={`dot ${m.status}`} />
-                  <span className="material-name">{m.filename}</span>
-                  <span className="material-status">
-                    {m.status === 'ready' ? `${m.chunk_count} 块` : statusText(m.status)}
-                  </span>
-                </li>
-              ))}
-              {materials.length === 0 && <li className="empty">还没有材料，先上传课件</li>}
-            </ul>
-            <button
-              className="upload"
-              disabled={activeCourseId === null}
-              onClick={() => fileInputRef.current?.click()}
-            >
-              上传课件（PDF / PPTX）
-            </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".pdf,.pptx,.txt,.md"
-              hidden
-              onChange={(e) => {
-                const file = e.target.files?.[0]
-                if (file) handleUpload(file)
-                e.target.value = ''
-              }}
-            />
-          </aside>
-
-          <main className="chat">
-            {notice && <div className="notice">{notice}</div>}
-            <div className="messages">
-              {messages.length === 0 && (
-                <div className="welcome">
-                  <p>选一门课，上传课件，然后直接提问。</p>
-                  <p className="welcome-sub">答案会标注 [来源: 文件名 第X页]，请核对后使用。</p>
-                </div>
-              )}
-              {messages.map((m, i) => (
-                <div key={i} className={`message ${m.role}`}>
-                  {m.citations && m.citations.length > 0 && (
-                    <div className="citations">
-                      {m.citations.slice(0, 4).map((c, j) => (
-                        <span key={j} className="citation" title={c.snippet}>
-                          {c.material} 第{c.page}页
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                  <div className="bubble">
-                    {m.content || (busy && i === messages.length - 1 ? '…' : '')}
-                  </div>
-                </div>
-              ))}
-              <div ref={bottomRef} />
-            </div>
-            <div className="composer">
-              <input
-                placeholder={
-                  activeCourseId === null ? '先在左侧选择或新建课程' : '输入你的问题，回车发送'
-                }
-                value={input}
-                disabled={activeCourseId === null}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
-              />
-              <button onClick={handleSend} disabled={busy || !input.trim()}>
-                {busy ? '回答中…' : '发送'}
-              </button>
-            </div>
-          </main>
-        </div>
-      )}
+      {(tab === 'bank' || tab === 'graph') && <Placeholder tab={tab} onGo={() => setTab('library')} />}
     </div>
   )
 }
 
-function statusText(status: string): string {
-  if (status === 'pending') return '排队中'
-  if (status === 'ingesting') return '解析中'
-  if (status === 'failed') return '失败'
-  return status
+function Placeholder({ tab, onGo }: { tab: 'bank' | 'graph'; onGo: () => void }) {
+  const info =
+    tab === 'bank'
+      ? {
+          title: '题库与解答',
+          desc: '把真题与习题整理成结构化题目：题干、解答步骤、知识点标签，配合练习闭环与错题本。',
+          plan: [
+            '真题结构化：题干 + 参考答案 + 知识点标签',
+            '练习闭环：按知识点选题、作答、步骤级验证',
+            '错题本：自动收集错题，并关联到资料对应页',
+          ],
+          note: '规划于 v0.4 实现',
+        }
+      : {
+          title: '知识图谱',
+          desc: '从课件与教材中抽取概念及其前置关系，形成可交互的课程知识图谱，串联资料、题目与实验。',
+          plan: [
+            'LLM 抽取概念、定义与前置关系',
+            '交互式图谱：缩放、拖拽、按章节着色',
+            '概念页：定义、出处页码、相关题目与实验',
+          ],
+          note: '规划于 v0.5 实现',
+        }
+  return (
+    <div className="placeholder-page">
+      <div className="placeholder-card">
+        <h2>{info.title}</h2>
+        <p className="placeholder-desc">{info.desc}</p>
+        <ul className="placeholder-plan">
+          {info.plan.map((item) => (
+            <li key={item}>{item}</li>
+          ))}
+        </ul>
+        <p className="placeholder-note">{info.note}，当前先完成课程资料分区。</p>
+        <button onClick={onGo}>去浏览课程资料</button>
+      </div>
+    </div>
+  )
 }

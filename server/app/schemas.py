@@ -21,6 +21,32 @@ class MaterialRead(BaseModel):
     chunk_count: int
 
 
+class PageOut(BaseModel):
+    page: int
+    text: str
+
+
+class MaterialPagesRead(BaseModel):
+    material_id: int
+    filename: str
+    page_count: int
+    offset: int
+    limit: int
+    pages: list[PageOut]
+
+
+class SearchHit(BaseModel):
+    material_id: int
+    material: str
+    page: int
+    snippet: str
+
+
+class SearchRead(BaseModel):
+    query: str
+    hits: list[SearchHit]
+
+
 class ChatTurn(BaseModel):
     role: str
     content: str

@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app import db
-from app.api import chat, courses
+from app.api import chat, courses, library
 
 
 @asynccontextmanager
@@ -24,6 +24,7 @@ app.add_middleware(
 
 app.include_router(courses.router, prefix="/api")
 app.include_router(chat.router, prefix="/api")
+app.include_router(library.router, prefix="/api")
 
 
 @app.get("/api/health")

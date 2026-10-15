@@ -29,6 +29,7 @@ async def retrieve(
     }
     return [
         {
+            "material_id": chunk.material_id,
             "material": names.get(chunk.material_id, "未知材料"),
             "page": chunk.page,
             "snippet": chunk.text[:120],
@@ -61,7 +62,15 @@ async def stream_answer(
     hits = await retrieve(session, course_id, question)
     yield (
         "citations",
-        [{"material": h["material"], "page": h["page"], "snippet": h["snippet"]} for h in hits],
+        [
+            {
+                "material_id": h["material_id"],
+                "material": h["material"],
+                "page": h["page"],
+                "snippet": h["snippet"],
+            }
+            for h in hits
+        ],
     )
     if not hits:
         yield ("delta", "这门课还没有可检索的材料，请先上传课件或教材（PDF / PPTX）。")
