@@ -211,6 +211,67 @@ def _norm_name(text: str) -> str:
     return re.sub(r"\s+", "", text)
 
 
+def order_modules(modules: list[dict[str, Any]], edges: list[dict[str, str]]) -> list[dict[str, Any]]:
+    """按「前置」关系调整模块顺序：A 的概念是 B 概念的前置时，A 排到 B 前面。
+
+    互相依赖（含环）的模块先合并为等价组整体移动，组内保持原顺序；
+    并列时以 LLM 给出的原顺序为准，保证确定性与最小改动。
+    """
+    count = len(modules)
+    module_of: dict[str, int] = {}
+    for i, module in enumerate(modules):
+        for concept in module["concepts"]:
+            module_of.setdefault(_norm_name(concept["name"]), i)
+
+    reach = [[False] * count for _ in range(count)]
+    for i in range(count):
+        reach[i][i] = True
+    for edge in edges:
+        if edge["relation"] != "prerequisite":
+            continue
+        source = module_of.get(_norm_name(edge["source"]))
+        target = module_of.get(_norm_name(edge["target"]))
+        if source is not None and target is not None:
+            reach[source][target] = True
+    for k in range(count):
+        for i in range(count):
+            if reach[i][k]:
+                for j in range(count):
+                    if reach[k][j]:
+                        reach[i][j] = True
+
+    # 强连通等价组：代表元 = 组内最小原索引
+    group_of = [
+        min(j for j in range(count) if reach[i][j] and reach[j][i]) for i in range(count)
+    ]
+    groups = sorted({group_of[i] for i in range(count)})
+    group_deps: dict[int, set[int]] = {g: set() for g in groups}
+    # 组级前置：存在 i→j 的直接前置边且不同组
+    for edge in edges:
+        if edge["relation"] != "prerequisite":
+            continue
+        source = module_of.get(_norm_name(edge["source"]))
+        target = module_of.get(_norm_name(edge["target"]))
+        if source is None or target is None:
+            continue
+        gs, gt = group_of[source], group_of[target]
+        if gs != gt:
+            group_deps[gt].add(gs)
+
+    ordered_groups: list[int] = []
+    pending = set(groups)
+    while pending:
+        ready = [g for g in sorted(pending) if not (group_deps[g] & pending)]
+        pick = ready[0] if ready else min(pending)
+        ordered_groups.append(pick)
+        pending.discard(pick)
+
+    ordered: list[int] = []
+    for g in ordered_groups:
+        ordered.extend(i for i in range(count) if group_of[i] == g)
+    return [modules[i] for i in ordered]
+
+
 def _set_status(course_id: int, status: str, *, error: str = "", overview: str | None = None) -> None:
     with Session(db.engine) as session:
         record = session.get(CourseGraph, course_id) or CourseGraph(course_id=course_id)
@@ -287,6 +348,7 @@ async def generate_graph(course_id: int) -> None:
         parsed = parse_graph_text(merged)
         if not parsed["modules"]:
             raise ValueError(f"合并结果解析失败：{merged[:150]!r}")
+        parsed["modules"] = order_modules(parsed["modules"], parsed["edges"])
 
         index = build_index(rows)
         with Session(db.engine) as session:

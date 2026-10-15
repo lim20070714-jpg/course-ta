@@ -56,6 +56,54 @@ def test_parse_graph_text_concept_without_module() -> None:
     assert parsed["modules"][0]["name"] == "其他"
 
 
+def _module(name: str, concept: str) -> dict:
+    return {"name": name, "concepts": [{"name": concept, "desc": "", "keywords": []}]}
+
+
+def test_order_modules_moves_prerequisites_first() -> None:
+    modules = [_module("放大器", "小信号放大器"), _module("定律", "基尔霍夫定律")]
+    edges = [{"source": "基尔霍夫定律", "target": "小信号放大器", "relation": "prerequisite"}]
+    ordered = graph_core.order_modules(modules, edges)
+    assert [m["name"] for m in ordered] == ["定律", "放大器"]
+
+
+def test_order_modules_stable_without_cross_edges() -> None:
+    modules = [_module("A", "a1"), _module("B", "b1"), _module("C", "c1")]
+    edges = [{"source": "b1", "target": "a1", "relation": "related"}]
+    assert graph_core.order_modules(modules, edges) == modules
+
+
+def test_order_modules_keeps_cyclic_group_together() -> None:
+    modules = [_module("A", "a1"), _module("B", "b1")]
+    edges = [
+        {"source": "a1", "target": "b1", "relation": "prerequisite"},
+        {"source": "b1", "target": "a1", "relation": "prerequisite"},
+    ]
+    ordered = graph_core.order_modules(modules, edges)
+    assert [m["name"] for m in ordered] == ["A", "B"]
+
+
+def test_order_modules_does_not_defer_cyclic_group() -> None:
+    modules = [_module("X", "x1"), _module("Y", "y1"), _module("Z", "z1")]
+    edges = [
+        {"source": "x1", "target": "y1", "relation": "prerequisite"},
+        {"source": "y1", "target": "x1", "relation": "prerequisite"},
+        {"source": "z1", "target": "x1", "relation": "prerequisite"},
+    ]
+    ordered = graph_core.order_modules(modules, edges)
+    assert [m["name"] for m in ordered] == ["Z", "X", "Y"]
+
+
+def test_order_modules_respects_chain() -> None:
+    modules = [_module("C", "c1"), _module("B", "b1"), _module("A", "a1")]
+    edges = [
+        {"source": "a1", "target": "b1", "relation": "prerequisite"},
+        {"source": "b1", "target": "c1", "relation": "prerequisite"},
+    ]
+    ordered = graph_core.order_modules(modules, edges)
+    assert [m["name"] for m in ordered] == ["A", "B", "C"]
+
+
 def test_material_blocks_caps_points_and_detail() -> None:
     key_points = [{"title": f"点{i}", "detail": "详" * 200, "pages": [i]} for i in range(20)]
     blocks = graph_core.material_blocks([(1, "课件.pdf", key_points)])
