@@ -1,4 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import Markdown from 'react-markdown'
+import rehypeKatex from 'rehype-katex'
+import remarkGfm from 'remark-gfm'
+import remarkMath from 'remark-math'
 import type {
   ChatTurn,
   Citation,
@@ -10,6 +14,18 @@ import type {
 import { listMaterials, materialPages, searchCourse, streamChat, uploadMaterial } from '../api'
 
 const PAGE_WINDOW = 20
+
+/** 把模型常用的其它公式定界符归一化为 $$...$$ / $...$，供 remark-math 解析。 */
+function normalizeMath(src: string): string {
+  return src
+    .replace(/\\\[([\s\S]*?)\\\]/g, (_, body: string) => `\n$$${body}$$\n`)
+    .replace(/\\\(([\s\S]*?)\\\)/g, (_, body: string) => `$${body}$`)
+    .replace(
+      /(\\begin\{[a-zA-Z*]+\}[\s\S]*?\\end\{[a-zA-Z*]+\})/g,
+      (block: string) => `\n$$${block}$$\n`,
+    )
+    .replace(/\[([^[\]\n]*\\[a-zA-Z]+[^[\]\n]*)\]/g, (_, body: string) => `$$${body}$$`)
+}
 
 interface Message {
   role: 'user' | 'assistant'
@@ -381,7 +397,24 @@ export default function Library({ courseId }: { courseId: number | null }) {
                     ))}
                   </div>
                 )}
-                <div className="bubble">{m.content || (busy && i === messages.length - 1 ? '…' : '')}</div>
+                <div className="bubble">
+                  {m.content ? (
+                    m.role === 'assistant' ? (
+                      <Markdown
+                        remarkPlugins={[remarkGfm, remarkMath]}
+                        rehypePlugins={[[rehypeKatex, { throwOnError: false }]]}
+                      >
+                        {normalizeMath(m.content)}
+                      </Markdown>
+                    ) : (
+                      m.content
+                    )
+                  ) : busy && i === messages.length - 1 ? (
+                    '…'
+                  ) : (
+                    ''
+                  )}
+                </div>
               </div>
             ))}
             <div ref={askBottomRef} />
