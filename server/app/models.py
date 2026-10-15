@@ -69,7 +69,36 @@ class Formula(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     title: str
     latex: str
-    category: str = "自定义"  # 高等微积分 | 线性代数 | 物理 | 电子 | 复变函数 | 自定义
+    category: str = "自定义"  # 微积分 | 代数 | 变换 | 线性代数 | 复数 | 物理与工程 | 自定义
     note: str = ""
     preset: bool = False
     created_at: datetime = Field(default_factory=_now)
+
+
+class CourseGraph(SQLModel, table=True):
+    course_id: int = Field(primary_key=True, foreign_key="course.id")
+    overview: str = ""  # 课程脉络总览（Markdown + LaTeX）
+    status: str = "pending"  # pending | generating | ready | failed
+    error: str = ""
+    updated_at: datetime = Field(default_factory=_now)
+
+
+class Concept(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    course_id: int = Field(index=True, foreign_key="course.id")
+    name: str
+    description: str = ""  # 概念解释（Markdown + LaTeX）
+    module: str = ""  # 所属模块（脉络分组）
+    order: int = 0  # 全局顺序（模块内按此排序）
+    material_id: int | None = Field(default=None, foreign_key="material.id")
+    page: int = 0
+    created_at: datetime = Field(default_factory=_now)
+
+
+class ConceptEdge(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    course_id: int = Field(index=True, foreign_key="course.id")
+    source_id: int = Field(index=True, foreign_key="concept.id")
+    target_id: int = Field(index=True, foreign_key="concept.id")
+    relation: str = "related"  # prerequisite | related
+    note: str = ""

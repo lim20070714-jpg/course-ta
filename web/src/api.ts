@@ -180,6 +180,48 @@ export interface WrongItem extends ProblemListItem {
   last_feedback: string
 }
 
+export interface GraphProblemRef {
+  id: number
+  number: string
+  material: string
+}
+
+export interface GraphNode {
+  id: number
+  name: string
+  description: string
+  module: string
+  order: number
+  material_id: number | null
+  material: string
+  page: number
+  problems: GraphProblemRef[]
+}
+
+export interface GraphEdge {
+  source: number
+  target: number
+  relation: string // prerequisite | related
+  note: string
+}
+
+export interface CourseGraph {
+  course_id: number
+  status: string // pending | generating | ready | failed
+  error: string
+  overview: string
+  nodes: GraphNode[]
+  edges: GraphEdge[]
+}
+
+export const getCourseGraph = (courseId: number) =>
+  fetch(`/api/courses/${courseId}/graph`).then((r) => json<CourseGraph>(r))
+
+export const regenerateGraph = (courseId: number) =>
+  fetch(`/api/courses/${courseId}/graph`, { method: 'POST' }).then((r) =>
+    json<{ status: string }>(r),
+  )
+
 async function json<T>(resp: Response): Promise<T> {
   if (!resp.ok) {
     const detail = await resp.json().catch(() => null)

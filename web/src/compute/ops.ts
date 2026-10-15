@@ -5,6 +5,16 @@ export interface OpDef {
 
 export const OP_GROUPS: { label: string; ops: OpDef[] }[] = [
   {
+    label: '微积分',
+    ops: [
+      { id: 'diff', label: '导数 / 偏导数' },
+      { id: 'integrate', label: '积分（可填上下限）' },
+      { id: 'limit', label: '极限' },
+      { id: 'taylor', label: '泰勒展开' },
+      { id: 'solve', label: '解方程' },
+    ],
+  },
+  {
     label: '代数',
     ops: [
       { id: 'simplify', label: '化简' },
@@ -15,24 +25,16 @@ export const OP_GROUPS: { label: string; ops: OpDef[] }[] = [
     ],
   },
   {
-    label: '微积分',
-    ops: [
-      { id: 'diff', label: '求导' },
-      { id: 'integrate', label: '积分' },
-      { id: 'limit', label: '极限' },
-      { id: 'series', label: '级数展开' },
-      { id: 'solve', label: '解方程' },
-    ],
-  },
-  {
     label: '变换',
     ops: [
+      { id: 'fourier', label: '傅里叶变换（ω 约定）' },
+      { id: 'inverse_fourier', label: '逆傅里叶变换' },
       { id: 'laplace', label: '拉普拉斯变换' },
       { id: 'inverse_laplace', label: '逆拉普拉斯变换' },
     ],
   },
   {
-    label: '矩阵',
+    label: '线性代数',
     ops: [
       { id: 'det', label: '行列式' },
       { id: 'inv', label: '逆矩阵' },
@@ -43,7 +45,7 @@ export const OP_GROUPS: { label: string; ops: OpDef[] }[] = [
     ],
   },
   {
-    label: '复变',
+    label: '复数',
     ops: [
       { id: 'conjugate', label: '共轭' },
       { id: 'expand_complex', label: '展开为 x+yi' },
@@ -66,17 +68,20 @@ export interface OpParams {
 
 const _VAR_OPS = new Set([
   'diff',
+  'partial',
   'integrate',
   'limit',
+  'taylor',
   'series',
   'solve',
   'apart',
   'residue',
   'laplace',
   'inverse_laplace',
+  'fourier',
 ])
-const _POINT_OPS = new Set(['limit', 'series', 'residue'])
-const _ORDER_OPS = new Set(['diff', 'series'])
+const _POINT_OPS = new Set(['limit', 'taylor', 'series', 'residue'])
+const _ORDER_OPS = new Set(['diff', 'partial', 'taylor', 'series'])
 const _MATRIX_OPS = new Set(['det', 'inv', 'transpose', 'rank', 'rref', 'eigen'])
 
 export function opNeeds(op: string): OpParams {
@@ -89,7 +94,7 @@ export function opNeeds(op: string): OpParams {
   }
 }
 
-export const CATEGORIES = ['高等微积分', '线性代数', '物理', '电子', '复变函数', '自定义']
+export const CATEGORIES = ['微积分', '代数', '变换', '线性代数', '复数', '物理与工程', '自定义']
 
 export interface SymbolDef {
   name: string

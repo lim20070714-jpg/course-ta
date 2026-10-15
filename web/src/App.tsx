@@ -1,12 +1,25 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Course } from './api'
 import { createCourse, listCourses } from './api'
 import LabPage from './components/LabPage'
 import Bank from './sections/Bank'
 import Compute from './sections/Compute'
+import Graph from './sections/Graph'
 import Library from './sections/Library'
 
 type Tab = 'library' | 'bank' | 'compute' | 'graph' | 'lab'
+
+interface LibraryJump {
+  materialId: number
+  page: number
+  filename: string
+  seq: number
+}
+
+interface BankJump {
+  problemId: number
+  seq: number
+}
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'library', label: '课程资料' },
@@ -23,6 +36,9 @@ export default function App() {
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState('')
   const [notice, setNotice] = useState('')
+  const [libraryJump, setLibraryJump] = useState<LibraryJump | null>(null)
+  const [bankJump, setBankJump] = useState<BankJump | null>(null)
+  const jumpSeq = useRef(0)
 
   useEffect(() => {
     listCourses()
@@ -56,7 +72,11 @@ export default function App() {
           <button
             key={t.id}
             className={tab === t.id ? 'tab active' : 'tab'}
-            onClick={() => setTab(t.id)}
+            onClick={() => {
+              setTab(t.id)
+              setLibraryJump(null)
+              setBankJump(null)
+            }}
           >
             {t.label}
           </button>
@@ -109,39 +129,28 @@ export default function App() {
 
       {notice && <div className="notice">{notice}</div>}
 
-      {tab === 'library' && <Library key={activeCourseId ?? 'none'} courseId={activeCourseId} />}
-      {tab === 'bank' && <Bank key={activeCourseId ?? 'none'} courseId={activeCourseId} />}
+      {tab === 'library' && (
+        <Library key={activeCourseId ?? 'none'} courseId={activeCourseId} jump={libraryJump} />
+      )}
+      {tab === 'bank' && (
+        <Bank key={activeCourseId ?? 'none'} courseId={activeCourseId} jump={bankJump} />
+      )}
       {tab === 'compute' && <Compute />}
       {tab === 'lab' && <LabPage />}
-      {tab === 'graph' && <Placeholder onGo={() => setTab('library')} />}
-    </div>
-  )
-}
-
-function Placeholder({ onGo }: { onGo: () => void }) {
-  const info = {
-    title: '知识图谱',
-    desc: '从课件与教材中抽取概念及其前置关系，形成可交互的课程知识图谱，串联资料、题目与实验。',
-    plan: [
-      'LLM 抽取概念、定义与前置关系',
-      '交互式图谱：缩放、拖拽、按章节着色',
-      '概念页：定义、出处页码、相关题目与实验',
-    ],
-    note: '规划于 v0.5 实现',
-  }
-  return (
-    <div className="placeholder-page">
-      <div className="placeholder-card">
-        <h2>{info.title}</h2>
-        <p className="placeholder-desc">{info.desc}</p>
-        <ul className="placeholder-plan">
-          {info.plan.map((item) => (
-            <li key={item}>{item}</li>
-          ))}
-        </ul>
-        <p className="placeholder-note">{info.note}，当前可先使用课程资料与题库分区。</p>
-        <button onClick={onGo}>去浏览课程资料</button>
-      </div>
+      {tab === 'graph' && (
+        <Graph
+          key={activeCourseId ?? 'none'}
+          courseId={activeCourseId}
+          onJumpMaterial={(materialId, page, filename) => {
+            setLibraryJump({ materialId, page, filename, seq: ++jumpSeq.current })
+            setTab('library')
+          }}
+          onOpenProblem={(problemId) => {
+            setBankJump({ problemId, seq: ++jumpSeq.current })
+            setTab('bank')
+          }}
+        />
+      )}
     </div>
   )
 }

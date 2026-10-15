@@ -14,7 +14,7 @@ from app.schemas import (
 
 router = APIRouter(tags=["compute"])
 
-_CATEGORIES = ("高等微积分", "线性代数", "物理", "电子", "复变函数", "自定义")
+_CATEGORIES = ("微积分", "代数", "变换", "线性代数", "复数", "物理与工程", "自定义")
 
 
 @router.post("/compute/evaluate", response_model=ComputeResult)
@@ -93,11 +93,16 @@ def delete_formula(formula_id: int) -> dict[str, str]:
 
 
 def seed_formulas() -> None:
-    """首次启动时写入预置公式库（用户可编辑/删除）。"""
+    """写入预置公式库（用户可编辑/删除）；旧分类的预置项在升级时自动替换为普适分类。"""
     with Session(db.engine) as session:
-        if session.exec(select(Formula.id).limit(1)).first() is not None:
-            return
+        existing = session.exec(select(Formula)).all()
+        stale = [f for f in existing if f.preset and f.category not in _CATEGORIES]
+        for f in stale:
+            session.delete(f)
+        titles = {f.title for f in existing if f not in stale}
         for item in compute.PRESET_FORMULAS:
+            if item["title"] in titles:
+                continue
             session.add(
                 Formula(
                     title=item["title"],

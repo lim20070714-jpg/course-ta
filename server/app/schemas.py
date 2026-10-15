@@ -177,3 +177,37 @@ class FormulaRead(BaseModel):
     category: str
     note: str
     preset: bool
+
+
+class GraphProblemRef(BaseModel):
+    id: int
+    number: str
+    material: str = ""
+
+
+class GraphNodeRead(BaseModel):
+    id: int
+    name: str
+    description: str
+    module: str
+    order: int
+    material_id: int | None = None
+    material: str = ""
+    page: int = 0
+    problems: list[GraphProblemRef] = []
+
+
+class GraphEdgeRead(BaseModel):
+    source: int
+    target: int
+    relation: str  # prerequisite | related
+    note: str = ""
+
+
+class GraphRead(BaseModel):
+    course_id: int
+    status: str  # pending | generating | ready | failed
+    error: str = ""
+    overview: str = ""
+    nodes: list[GraphNodeRead] = []
+    edges: list[GraphEdgeRead] = []

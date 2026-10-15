@@ -18,6 +18,12 @@ def test_parse_input_latex() -> None:
     assert str(compute.parse_input(r"\frac{x^2+1}{x-1}", symbols)) == "(x**2 + 1)/(x - 1)"
 
 
+def test_parse_input_plain_with_latex_braces() -> None:
+    symbols = compute.build_symbols([])
+    assert str(compute.parse_input("e^{-x^2}", symbols)) == "exp(-x**2)"
+    assert str(compute.parse_input("x^{2n}", symbols)) == "x**(2*n)"
+
+
 def test_parse_input_empty_raises() -> None:
     with pytest.raises(ValueError):
         compute.parse_input("   ", compute.build_symbols([]))
@@ -54,6 +60,57 @@ def test_evaluate_limit() -> None:
 def test_evaluate_laplace() -> None:
     result = compute.evaluate({"expr": "exp(-2t)", "op": "laplace", "var": "t"})
     assert result["plain"] == "1/(s + 2)"
+
+
+def test_evaluate_fourier_gaussian() -> None:
+    result = compute.evaluate({"expr": "exp(-t^2/2)", "op": "fourier", "var": "t"})
+    assert result["plain"] == "sqrt(2)*sqrt(pi)*exp(-omega**2/2)"
+
+
+def test_evaluate_fourier_decay() -> None:
+    result = compute.evaluate(
+        {
+            "expr": "exp(-a*abs(t))",
+            "op": "fourier",
+            "var": "t",
+            "symbols": [{"name": "a", "kind": "positive"}],
+        }
+    )
+    assert result["plain"] == "2*a/(a**2 + omega**2)"
+
+
+def test_evaluate_inverse_fourier_roundtrip() -> None:
+    result = compute.evaluate({"expr": "sqrt(2*pi)*exp(-w^2/2)", "op": "inverse_fourier"})
+    assert result["plain"] == "exp(-t**2/2)"
+
+
+def test_evaluate_inverse_fourier_latex_omega() -> None:
+    result = compute.evaluate({"expr": r"\sqrt{2\pi}e^{-\omega^2/2}", "op": "inverse_fourier"})
+    assert result["plain"] == "exp(-t**2/2)"
+
+
+def test_evaluate_inverse_fourier_requires_frequency() -> None:
+    with pytest.raises(ValueError, match="频率变量"):
+        compute.evaluate({"expr": "x^2", "op": "inverse_fourier"})
+
+
+def test_evaluate_taylor() -> None:
+    result = compute.evaluate(
+        {"expr": "sin(x)", "op": "taylor", "var": "x", "point": "0", "order": 6}
+    )
+    assert result["plain"] == "x**5/120 - x**3/6 + x"
+
+
+def test_evaluate_partial() -> None:
+    result = compute.evaluate({"expr": "x^2*y", "op": "partial", "var": "x"})
+    assert result["plain"] == "2*x*y"
+
+
+def test_evaluate_integrate_numeric_approx() -> None:
+    result = compute.evaluate(
+        {"expr": "sin(x)/x", "op": "integrate", "var": "x", "lower": "0", "upper": "3"}
+    )
+    assert result["approx"]
 
 
 def test_evaluate_solve_equation() -> None:
@@ -110,6 +167,9 @@ def test_formulas_seed_and_crud(monkeypatch: pytest.MonkeyPatch) -> None:
         presets = client.get("/api/formulas").json()
         assert len(presets) >= 20
         assert all(item["preset"] for item in presets)
+        assert {item["category"] for item in presets} <= {
+            "微积分", "代数", "变换", "线性代数", "复数", "物理与工程",
+        }
 
         created = client.post(
             "/api/formulas",
@@ -120,6 +180,12 @@ def test_formulas_seed_and_crud(monkeypatch: pytest.MonkeyPatch) -> None:
         updated = client.put(f"/api/formulas/{created['id']}", json={"note": "直角三角形"}).json()
         assert updated["note"] == "直角三角形"
         assert updated["title"] == "勾股定理"
+
+        with_category = client.post(
+            "/api/formulas",
+            json={"title": "Z 变换", "latex": "X(z)=\\sum x[n]z^{-n}", "category": "变换"},
+        ).json()
+        assert with_category["category"] == "变换"
 
         assert client.delete(f"/api/formulas/{created['id']}").json() == {"status": "ok"}
         assert client.delete(f"/api/formulas/{created['id']}").status_code == 404

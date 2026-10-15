@@ -862,52 +862,283 @@ button.citation:hover:not(:disabled) {
   color: #23408e;
 }
 
-/* ---------- 占位分区 ---------- */
+/* ---------- 知识图谱分区 ---------- */
 
-.placeholder-page {
+.graph-main {
+  position: relative;
+}
+
+.graph-canvas {
   flex: 1;
-  display: flex;
-  justify-content: center;
-  padding: 8vh 24px 24px;
-  overflow-y: auto;
-}
-
-.placeholder-card {
-  max-width: 560px;
-  width: 100%;
-  height: fit-content;
-  background: #fff;
-  border: 1px solid #e4e7ee;
-  border-radius: 14px;
-  padding: 28px 30px;
-}
-
-.placeholder-card h2 {
-  margin: 0 0 10px;
-  color: #1f2430;
-}
-
-.placeholder-desc {
-  font-size: 14px;
-  line-height: 1.8;
-  color: #5a6274;
-  margin: 0 0 14px;
-}
-
-.placeholder-plan {
-  margin: 0 0 14px;
-  padding-left: 20px;
+  min-height: 0;
   display: flex;
   flex-direction: column;
+  background: #fbfcfe;
+}
+
+.graph-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  border-bottom: 1px solid #e9ecf3;
+  background: #fff;
+}
+
+.graph-hint {
+  margin-left: auto;
+  font-size: 12px;
+  color: #9aa1b2;
+}
+
+.graph-svg {
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  cursor: grab;
+  touch-action: none;
+}
+
+.graph-svg:active {
+  cursor: grabbing;
+}
+
+.graph-edge {
+  stroke: #c3cbdd;
+  stroke-width: 1.6;
+}
+
+.graph-edge.related {
+  stroke-dasharray: 5 5;
+  stroke: #d3d9e6;
+}
+
+.graph-edge.active {
+  stroke: #2f5bd8;
+  stroke-width: 2.4;
+}
+
+.graph-node circle {
+  stroke: #fff;
+  stroke-width: 2;
+  transition: r 0.12s ease;
+}
+
+.graph-node.active circle {
+  stroke: #1f2430;
+}
+
+.graph-problem-dot {
+  fill: #f59e0b;
+  stroke: #fff !important;
+  stroke-width: 1.5 !important;
+}
+
+.graph-label {
+  font-size: 12px;
+  fill: #444c5e;
+  pointer-events: none;
+  user-select: none;
+}
+
+.graph-node.active .graph-label {
+  fill: #1f2430;
+  font-weight: 600;
+}
+
+.graph-side {
+  width: 320px;
+  flex-shrink: 0;
+  background: #fff;
+  border-left: 1px solid #e4e7ee;
+  overflow-y: auto;
+  padding: 18px 16px;
+}
+
+.graph-detail h3 {
+  margin: 10px 0 8px;
+  color: #1f2430;
+  font-size: 17px;
+}
+
+.graph-detail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.module-chip {
+  display: inline-block;
+  color: #fff;
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 999px;
+}
+
+.graph-source {
+  width: 100%;
+  margin-top: 12px;
+  text-align: left;
+  background: #eef3fe;
+  color: #23408e;
+  font-size: 13px;
+  padding: 9px 12px;
+}
+
+.graph-source:hover:not(:disabled) {
+  background: #e2ebfd;
+}
+
+.graph-block {
+  margin-top: 16px;
+}
+
+.graph-block-title {
+  font-size: 12px;
+  color: #7a8194;
+  letter-spacing: 0.05em;
+  margin-bottom: 8px;
+}
+
+.graph-problems {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.graph-problem {
+  background: #f4f6fb;
+  color: #33415e;
+  font-size: 13px;
+  padding: 5px 10px;
+}
+
+.graph-problem:hover:not(:disabled) {
+  background: #e2ebfd;
+  color: #23408e;
+}
+
+.graph-related {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.graph-related li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: 8px;
-  font-size: 14px;
+  font-size: 13px;
+}
+
+.graph-rel-tag {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: #7a8194;
+  background: #f4f6fb;
+  border-radius: 6px;
+  padding: 2px 8px;
+}
+
+.graph-overview-body {
+  font-size: 13.5px;
+  line-height: 1.8;
   color: #444c5e;
 }
 
-.placeholder-note {
+.graph-tip {
+  margin-top: 14px;
   font-size: 12px;
   color: #9aa1b2;
-  margin: 0 0 16px;
+  line-height: 1.7;
+}
+
+.module-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 6px 0 4px;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  color: #444c5e;
+  font-size: 13px;
+  text-align: left;
+  padding: 5px 8px;
+  border-radius: 8px;
+}
+
+.legend-item:hover:not(:disabled) {
+  background: #f0f2f7;
+}
+
+.legend-item.active {
+  background: #e8edfb;
+  color: #23408e;
+  font-weight: 600;
+}
+
+.legend-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.graph-concept-list {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.graph-concept {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  background: none;
+  color: #444c5e;
+  font-size: 13px;
+  text-align: left;
+  padding: 5px 8px;
+  border-radius: 8px;
+}
+
+.graph-concept:hover:not(:disabled) {
+  background: #f0f2f7;
+}
+
+.graph-concept.active {
+  background: #e8edfb;
+  color: #23408e;
+}
+
+.graph-concept-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.graph-concept-count {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: #b45309;
+  background: #fef3c7;
+  border-radius: 6px;
+  padding: 1px 6px;
 }
 
 /* ---------- 题库与解答分区 ---------- */

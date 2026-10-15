@@ -1,7 +1,7 @@
 """计算台：sympy 符号计算内核（支持 LaTeX 与普通数学语法输入）。
 
-面向高等微积分、线性代数、物理与电子：求导、积分、极限、级数、解方程、
-拉普拉斯变换、矩阵运算、复变函数（留数/共轭/模/辐角）等。
+按通用数学分支组织：化简与变换式、微积分（含定积分/偏导/泰勒展开）、
+积分变换（傅里叶/拉普拉斯）、线性代数（矩阵运算）、复变函数（留数/共轭/模/辐角）。
 """
 
 import re
@@ -23,8 +23,8 @@ _EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="compute")
 
 OPS = {
     "simplify", "expand", "factor", "apart", "trigsimp",
-    "diff", "integrate", "limit", "series", "solve",
-    "laplace", "inverse_laplace",
+    "diff", "partial", "integrate", "limit", "series", "taylor", "solve",
+    "fourier", "inverse_fourier", "laplace", "inverse_laplace",
     "det", "inv", "transpose", "rank", "rref", "eigen",
     "conjugate", "expand_complex", "abs", "arg", "re", "im", "residue",
 }
@@ -95,7 +95,18 @@ def parse_input(expr: str, symbols: dict[str, sympy.Symbol]) -> Any:
             + (implicit_multiplication_application, convert_xor, rationalize),
         )
     except Exception as exc:
-        raise ValueError(f"表达式解析失败：{exc}") from exc
+        braced = expr.replace("{", "(").replace("}", ")")
+        if braced == expr:
+            raise ValueError(f"表达式解析失败：{exc}") from exc
+        try:  # 混用 LaTeX 花括号的普通输入，如 e^{-x^2}
+            return parse_expr(
+                braced,
+                local_dict=_local_dict(symbols),
+                transformations=standard_transformations
+                + (implicit_multiplication_application, convert_xor, rationalize),
+            )
+        except Exception as inner:
+            raise ValueError(f"表达式解析失败：{inner}") from inner
 
 
 def _parse_value(text: str, symbols: dict[str, sympy.Symbol]) -> Any:
@@ -103,6 +114,49 @@ def _parse_value(text: str, symbols: dict[str, sympy.Symbol]) -> Any:
     if not text:
         raise ValueError("缺少参数值")
     return parse_input(text, symbols)
+
+
+_FREQ_NAMES = ("omega", "w")
+
+
+def _fourier_transform(expr: Any, var: sympy.Symbol, symbols: dict[str, sympy.Symbol]) -> Any:
+    """傅里叶变换，角频率约定 F(ω)=∫f(t)e^{-iωt}dt（教材与工程通用）。"""
+    if not expr.has(var) and len(expr.free_symbols) == 1:
+        var = next(iter(expr.free_symbols))
+    omega = symbols.get("omega") or sympy.Symbol("omega")
+    k = sympy.Symbol("k")
+    result = sympy.fourier_transform(expr, var, k)
+    if result.has(sympy.FourierTransform):
+        fallback = sympy.integrate(
+            expr * sympy.exp(-sympy.I * omega * var), (var, -sympy.oo, sympy.oo)
+        )
+        if fallback.has(sympy.Integral):
+            raise ValueError("求不出该函数的解析傅里叶变换（可尝试化简表达式或改用拉普拉斯变换）")
+        return fallback
+    return result.subs(k, omega / (2 * sympy.pi))
+
+
+def _inverse_fourier_transform(expr: Any, symbols: dict[str, sympy.Symbol]) -> Any:
+    """逆傅里叶变换 f(t)=(1/2π)∫F(ω)e^{iωt}dω；自动识别频率符号（\\omega 或 w）。"""
+    freq = None
+    for name in _FREQ_NAMES:
+        symbol = symbols.get(name) or sympy.Symbol(name)
+        if expr.has(symbol):
+            freq = symbol
+            break
+    if freq is None:
+        raise ValueError("表达式中找不到频率变量（请用 w 或 \\omega 表示频率）")
+    t = symbols.get("t") or sympy.Symbol("t")
+    k = sympy.Symbol("k")
+    result = sympy.inverse_fourier_transform(expr.subs(freq, 2 * sympy.pi * k), k, t)
+    if result.has(sympy.InverseFourierTransform):
+        fallback = sympy.integrate(
+            expr * sympy.exp(sympy.I * freq * t), (freq, -sympy.oo, sympy.oo)
+        ) / (2 * sympy.pi)
+        if fallback.has(sympy.Integral):
+            raise ValueError("求不出该函数的解析逆傅里叶变换（可尝试化简表达式）")
+        return fallback
+    return result
 
 
 def evaluate(req: dict[str, Any]) -> dict[str, str]:
@@ -167,7 +221,7 @@ def _dispatch(
         return sympy.apart(expr, var)
     if op == "trigsimp":
         return sympy.trigsimp(expr)
-    if op == "diff":
+    if op == "diff" or op == "partial":
         return sympy.diff(expr, var, order)
     if op == "integrate":
         if isinstance(expr, sympy.Integral):
@@ -175,15 +229,27 @@ def _dispatch(
         if lower_s and upper_s:
             lo = _parse_value(lower_s, symbols)
             hi = _parse_value(upper_s, symbols)
-            return sympy.integrate(expr, (var, lo, hi))
+            result = sympy.integrate(expr, (var, lo, hi))
+            if result.has(sympy.Integral) and not result.free_symbols:
+                try:
+                    numeric = sympy.N(result, 10)
+                except Exception:  # noqa: BLE001  数值回退失败则保留符号结果
+                    return result
+                if not numeric.has(sympy.Integral):
+                    return numeric
+            return result
         return sympy.integrate(expr, var)
     if op == "limit":
         return sympy.limit(expr, var, point)
-    if op == "series":
+    if op in ("series", "taylor"):
         return sympy.series(expr, var, point, order).removeO()
     if op == "solve":
         equation = expr if isinstance(expr, sympy.Eq) else sympy.Eq(expr, 0)
         return sympy.solve(equation, var)
+    if op == "fourier":
+        return _fourier_transform(expr, var, symbols)
+    if op == "inverse_fourier":
+        return _inverse_fourier_transform(expr, symbols)
     if op == "laplace":
         return sympy.laplace_transform(expr, var, sympy.Symbol("s"), noconds=True)
     if op == "inverse_laplace":
@@ -263,21 +329,46 @@ def _format_result(result: Any) -> dict[str, str]:
 
 
 PRESET_FORMULAS: list[dict[str, str]] = [
-    # —— 高等微积分 ——
-    {"title": "微积分基本定理", "category": "高等微积分",
+    # —— 微积分 ——
+    {"title": "微积分基本定理", "category": "微积分",
      "latex": r"\int_a^b f'(x)\,dx = f(b) - f(a)",
      "note": "牛顿-莱布尼茨公式"},
-    {"title": "分部积分", "category": "高等微积分",
+    {"title": "分部积分", "category": "微积分",
      "latex": r"\int u\,dv = uv - \int v\,du", "note": "处理乘积的积分"},
-    {"title": "泰勒展开", "category": "高等微积分",
+    {"title": "泰勒展开", "category": "微积分",
      "latex": r"f(x)=\sum_{n=0}^{\infty}\frac{f^{(n)}(a)}{n!}(x-a)^n",
      "note": "在 $a$ 处展开；$a=0$ 时为麦克劳林级数"},
-    {"title": "常用积分 · arctan 型", "category": "高等微积分",
-     "latex": r"\int \frac{dx}{a^2+x^2} = \frac{1}{a}\arctan\frac{x}{a} + C", "note": ""},
-    {"title": "高斯积分", "category": "高等微积分",
+    {"title": "常用麦克劳林级数", "category": "微积分",
+     "latex": r"e^x=\sum_{n=0}^{\infty}\frac{x^n}{n!},\quad"
+              r"\sin x=x-\frac{x^3}{3!}+\frac{x^5}{5!}-\cdots,\quad"
+              r"\frac{1}{1-x}=\sum_{n=0}^{\infty}x^n\;(|x|<1)", "note": ""},
+    {"title": "高斯积分", "category": "微积分",
      "latex": r"\int_{-\infty}^{+\infty} e^{-a x^2}\,dx = \sqrt{\frac{\pi}{a}}\,,\quad a>0", "note": ""},
-    {"title": "欧拉公式", "category": "高等微积分",
-     "latex": r"e^{i\theta} = \cos\theta + i\sin\theta", "note": "连接指数与三角"},
+    {"title": "常用积分 · arctan 型", "category": "微积分",
+     "latex": r"\int \frac{dx}{a^2+x^2} = \frac{1}{a}\arctan\frac{x}{a} + C", "note": ""},
+    {"title": "洛必达法则", "category": "微积分",
+     "latex": r"\lim_{x\to a}\frac{f(x)}{g(x)}=\lim_{x\to a}\frac{f'(x)}{g'(x)}",
+     "note": "适用于 $\\frac{0}{0}$、$\\frac{\\infty}{\\infty}$ 型"},
+    # —— 代数 ——
+    {"title": "二次方程求根公式", "category": "代数",
+     "latex": r"x=\frac{-b\pm\sqrt{b^2-4ac}}{2a}", "note": ""},
+    {"title": "韦达定理", "category": "代数",
+     "latex": r"x_1+x_2=-\frac{b}{a}\,,\quad x_1x_2=\frac{c}{a}", "note": ""},
+    {"title": "二项式定理", "category": "代数",
+     "latex": r"(a+b)^n=\sum_{k=0}^{n}\binom{n}{k}a^{n-k}b^{k}", "note": ""},
+    {"title": "平方差公式", "category": "代数",
+     "latex": r"a^2-b^2=(a-b)(a+b)", "note": ""},
+    # —— 变换 ——
+    {"title": "傅里叶变换（ω 约定）", "category": "变换",
+     "latex": r"F(\omega)=\int_{-\infty}^{+\infty} f(t)\,e^{-i\omega t}\,dt",
+     "note": "计算台选「傅里叶变换」即按此约定"},
+    {"title": "逆傅里叶变换", "category": "变换",
+     "latex": r"f(t)=\frac{1}{2\pi}\int_{-\infty}^{+\infty} F(\omega)\,e^{i\omega t}\,d\omega", "note": ""},
+    {"title": "拉普拉斯变换", "category": "变换",
+     "latex": r"F(s)=\int_{0}^{+\infty} f(t)\,e^{-st}\,dt", "note": "单边拉普拉斯变换"},
+    {"title": "常用变换对", "category": "变换",
+     "latex": r"\frac{1}{s+a}\ \leftrightarrow\ e^{-at}u(t)\,,\quad"
+              r"\frac{\omega_0}{s^2+\omega_0^2}\ \leftrightarrow\ \sin(\omega_0 t)\,u(t)", "note": ""},
     # —— 线性代数 ——
     {"title": "2×2 行列式", "category": "线性代数",
      "latex": r"\det\begin{pmatrix}a&b\\c&d\end{pmatrix}=ad-bc", "note": ""},
@@ -287,38 +378,41 @@ PRESET_FORMULAS: list[dict[str, str]] = [
      "latex": r"\det(A-\lambda I)=0", "note": "解出的 $\\lambda$ 为特征值"},
     {"title": "克拉默法则", "category": "线性代数",
      "latex": r"x_i=\frac{\det A_i}{\det A}", "note": "$A_i$ 为第 $i$ 列被 $b$ 替换后的矩阵"},
-    # —— 物理 ——
-    {"title": "牛顿第二定律", "category": "物理",
-     "latex": r"\vec{F}=m\vec{a}", "note": ""},
-    {"title": "高斯定理（电学）", "category": "物理",
-     "latex": r"\oint_S \vec{E}\cdot d\vec{A}=\frac{Q}{\varepsilon_0}", "note": ""},
-    {"title": "一维波动方程", "category": "物理",
-     "latex": r"\frac{\partial^2 u}{\partial t^2}=v^2\frac{\partial^2 u}{\partial x^2}", "note": ""},
-    {"title": "简谐振动方程", "category": "物理",
-     "latex": r"\ddot{x}+\omega^2 x=0", "note": "解为 $x=A\\cos(\\omega t+\\varphi)$"},
-    # —— 电子 ——
-    {"title": "欧姆定律", "category": "电子",
-     "latex": r"U=IR", "note": ""},
-    {"title": "KCL 基尔霍夫电流定律", "category": "电子",
-     "latex": r"\sum_k i_k = 0", "note": "节点电流代数和为零（流出为正）"},
-    {"title": "KVL 基尔霍夫电压定律", "category": "电子",
-     "latex": r"\sum_k u_k = 0", "note": "回路电压代数和为零"},
-    {"title": "RC 充电过程", "category": "电子",
-     "latex": r"v_C(t)=V_S\left(1-e^{-t/RC}\right)", "note": "时间常数 $\\tau=RC$"},
-    {"title": "RLC 串联谐振", "category": "电子",
-     "latex": r"\omega_0=\frac{1}{\sqrt{LC}}\,,\quad Q=\frac{1}{R}\sqrt{\frac{L}{C}}", "note": ""},
-    {"title": "相量阻抗", "category": "电子",
-     "latex": r"Z_R=R,\quad Z_L=j\omega L,\quad Z_C=\frac{1}{j\omega C}", "note": "正弦稳态分析"},
-    {"title": "戴维南等效定理", "category": "电子",
-     "latex": r"v_{th}=v_{oc},\quad R_{th}=\frac{v_{oc}}{i_{sc}}", "note": "开路电压 / 短路电流"},
-    # —— 复变函数 ——
-    {"title": "柯西-黎曼方程", "category": "复变函数",
+    # —— 复数 ——
+    {"title": "欧拉公式", "category": "复数",
+     "latex": r"e^{i\theta} = \cos\theta + i\sin\theta", "note": "连接指数与三角"},
+    {"title": "复数的模与辐角", "category": "复数",
+     "latex": r"z=x+iy,\quad |z|=\sqrt{x^2+y^2},\quad \arg z=\arctan\frac{y}{x}", "note": ""},
+    {"title": "柯西-黎曼方程", "category": "复数",
      "latex": r"\frac{\partial u}{\partial x}=\frac{\partial v}{\partial y},\quad"
               r"\frac{\partial u}{\partial y}=-\frac{\partial v}{\partial x}",
      "note": "解析函数的充要条件（$f=u+iv$）"},
-    {"title": "留数定理", "category": "复变函数",
+    {"title": "留数定理", "category": "复数",
      "latex": r"\oint_C f(z)\,dz = 2\pi i \sum_k \operatorname{Res}(f, z_k)",
      "note": "$z_k$ 为 $C$ 内的孤立奇点"},
-    {"title": "柯西积分公式", "category": "复变函数",
+    {"title": "柯西积分公式", "category": "复数",
      "latex": r"f(a)=\frac{1}{2\pi i}\oint_C \frac{f(z)}{z-a}\,dz", "note": "$a$ 在 $C$ 内部"},
+    # —— 物理与工程 ——
+    {"title": "牛顿第二定律", "category": "物理与工程",
+     "latex": r"\vec{F}=m\vec{a}", "note": ""},
+    {"title": "简谐振动方程", "category": "物理与工程",
+     "latex": r"\ddot{x}+\omega^2 x=0", "note": "解为 $x=A\\cos(\\omega t+\\varphi)$"},
+    {"title": "一维波动方程", "category": "物理与工程",
+     "latex": r"\frac{\partial^2 u}{\partial t^2}=v^2\frac{\partial^2 u}{\partial x^2}", "note": ""},
+    {"title": "高斯定理（电学）", "category": "物理与工程",
+     "latex": r"\oint_S \vec{E}\cdot d\vec{A}=\frac{Q}{\varepsilon_0}", "note": ""},
+    {"title": "欧姆定律", "category": "物理与工程",
+     "latex": r"U=IR", "note": ""},
+    {"title": "KCL 基尔霍夫电流定律", "category": "物理与工程",
+     "latex": r"\sum_k i_k = 0", "note": "节点电流代数和为零（流出为正）"},
+    {"title": "KVL 基尔霍夫电压定律", "category": "物理与工程",
+     "latex": r"\sum_k u_k = 0", "note": "回路电压代数和为零"},
+    {"title": "RC 充电过程", "category": "物理与工程",
+     "latex": r"v_C(t)=V_S\left(1-e^{-t/RC}\right)", "note": "时间常数 $\\tau=RC$"},
+    {"title": "RLC 串联谐振", "category": "物理与工程",
+     "latex": r"\omega_0=\frac{1}{\sqrt{LC}}\,,\quad Q=\frac{1}{R}\sqrt{\frac{L}{C}}", "note": ""},
+    {"title": "相量阻抗", "category": "物理与工程",
+     "latex": r"Z_R=R,\quad Z_L=j\omega L,\quad Z_C=\frac{1}{j\omega C}", "note": "正弦稳态分析"},
+    {"title": "戴维南等效定理", "category": "物理与工程",
+     "latex": r"v_{th}=v_{oc},\quad R_{th}=\frac{v_{oc}}{i_{sc}}", "note": "开路电压 / 短路电流"},
 ]

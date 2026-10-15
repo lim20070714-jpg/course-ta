@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
   ChatTurn,
   Citation,
@@ -30,11 +30,18 @@ interface Message {
   citations?: Citation[]
 }
 
-export default function Library({ courseId }: { courseId: number | null }) {
+export default function Library({
+  courseId,
+  jump,
+}: {
+  courseId: number | null
+  jump?: { materialId: number; page: number; filename: string; seq: number } | null
+}) {
   const [materials, setMaterials] = useState<Material[]>([])
   const [filter, setFilter] = useState('')
   const [notice, setNotice] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
+  const lastJumpRef = useRef(0)
 
   const [current, setCurrent] = useState<Material | null>(null)
   const [doc, setDoc] = useState<MaterialPages | null>(null)
@@ -112,7 +119,7 @@ export default function Library({ courseId }: { courseId: number | null }) {
     [doc, page],
   )
 
-  function loadWindow(materialId: number, target: number) {
+  const loadWindow = useCallback((materialId: number, target: number) => {
     setReading(true)
     materialPages(materialId, Math.max(0, target - Math.floor(PAGE_WINDOW / 2)), PAGE_WINDOW)
       .then((d) => {
@@ -123,7 +130,7 @@ export default function Library({ courseId }: { courseId: number | null }) {
       })
       .catch((e: Error) => setNotice(e.message))
       .finally(() => setReading(false))
-  }
+  }, [])
 
   function openMaterial(m: Material, target = 1) {
     setCurrent(m)
@@ -142,23 +149,45 @@ export default function Library({ courseId }: { courseId: number | null }) {
     loadWindow(m.id, target)
   }
 
-  function openAtPage(m: Material, target: number) {
-    if (!m) return
-    setCurrent(m)
-    setSummary(null)
-    setNotice('')
-    setView(m.filename.toLowerCase().endsWith('.pdf') ? 'image' : 'text')
-    if (
-      doc?.material_id === m.id &&
-      target >= doc.offset + 1 &&
-      target <= doc.offset + doc.pages.length
-    ) {
-      setPage(target)
-      setJumpText(String(target))
-      return
-    }
-    loadWindow(m.id, target)
-  }
+  const openAtPage = useCallback(
+    (m: Material, target: number) => {
+      if (!m) return
+      setCurrent(m)
+      setSummary(null)
+      setNotice('')
+      setView(m.filename.toLowerCase().endsWith('.pdf') ? 'image' : 'text')
+      if (
+        doc?.material_id === m.id &&
+        target >= doc.offset + 1 &&
+        target <= doc.offset + doc.pages.length
+      ) {
+        setPage(target)
+        setJumpText(String(target))
+        return
+      }
+      loadWindow(m.id, target)
+    },
+    [doc, loadWindow],
+  )
+
+  useEffect(() => {
+    if (!jump || jump.seq === lastJumpRef.current) return
+    const target = jump
+    const timer = setTimeout(() => {
+      lastJumpRef.current = target.seq
+      openAtPage(
+        {
+          id: target.materialId,
+          filename: target.filename,
+          status: 'ready',
+          error: '',
+          chunk_count: 0,
+        },
+        target.page,
+      )
+    }, 0)
+    return () => clearTimeout(timer)
+  }, [jump, openAtPage])
 
   async function regenerate() {
     if (!current) return

@@ -27,7 +27,13 @@ const STATUS_FILTERS: [string, string][] = [
   ['correct', '做对'],
 ]
 
-export default function Bank({ courseId }: { courseId: number | null }) {
+export default function Bank({
+  courseId,
+  jump,
+}: {
+  courseId: number | null
+  jump?: { problemId: number; seq: number } | null
+}) {
   const [sources, setSources] = useState<ProblemSource[]>([])
   const [tags, setTags] = useState<TagCount[]>([])
   const [items, setItems] = useState<ProblemListItem[]>([])
@@ -35,6 +41,7 @@ export default function Bank({ courseId }: { courseId: number | null }) {
   const [total, setTotal] = useState(0)
   const [loaded, setLoaded] = useState(false)
   const [notice, setNotice] = useState('')
+  const lastJumpRef = useRef(0)
 
   const [filterMaterial, setFilterMaterial] = useState<number | null>(null)
   const [filterKnowledge, setFilterKnowledge] = useState('')
@@ -118,7 +125,7 @@ export default function Bank({ courseId }: { courseId: number | null }) {
 
   const tagList = useMemo(() => tags.slice(0, 30), [tags])
 
-  function openProblem(id: number) {
+  const openProblem = useCallback((id: number) => {
     setNotice('')
     getProblem(id)
       .then((d) => {
@@ -131,7 +138,18 @@ export default function Bank({ courseId }: { courseId: number | null }) {
         setSolutionCitations([])
       })
       .catch((e: Error) => setNotice(e.message))
-  }
+  }, [])
+
+  useEffect(() => {
+    if (!jump || jump.seq === lastJumpRef.current) return
+    const problemId = jump.problemId
+    const seq = jump.seq
+    const timer = setTimeout(() => {
+      lastJumpRef.current = seq
+      openProblem(problemId)
+    }, 0)
+    return () => clearTimeout(timer)
+  }, [jump, openProblem])
 
   function backToList() {
     setCurrent(null)

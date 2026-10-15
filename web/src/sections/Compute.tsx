@@ -260,14 +260,14 @@ export default function Compute() {
         <div className="compute-card">
           <div className="compute-input-head">
             <span className="compute-hint">
-              支持 LaTeX（含反斜杠）或普通语法（如 2x、x^3、exp(-2t)、sin(x)）
+              支持 LaTeX 或普通语法（如 2x、x^3、exp(-2t)）；定积分在下方填上下限，傅里叶变换按 ω 约定
             </span>
           </div>
           <textarea
             ref={exprRef}
             className="compute-expr"
             rows={3}
-            placeholder="输入表达式，如：\int_0^{+\infty} e^{-x^2} dx 或 x^3 - 3x + 2"
+            placeholder="输入函数或表达式，如：e^{-x^2}、\frac{\sin x}{x}、\int_0^{+\infty} e^{-x^2} dx"
             value={expr}
             onChange={(e) => setExpr(e.target.value)}
             onKeyDown={(e) => {
@@ -290,7 +290,14 @@ export default function Compute() {
           <div className="compute-controls">
             <label>
               操作
-              <select value={op} onChange={(e) => setOp(e.target.value)}>
+              <select
+                value={op}
+                onChange={(e) => {
+                  const next = e.target.value
+                  setOp(next)
+                  if ((next === 'taylor' || next === 'series') && order === 1) setOrder(6)
+                }}
+              >
                 {OP_GROUPS.map((g) => (
                   <optgroup key={g.label} label={g.label}>
                     {g.ops.map((o) => (
