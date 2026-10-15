@@ -18,10 +18,17 @@ const MODULE_COLORS = [
 const WORLD_W = 1180
 const WORLD_H = 780
 const NODE_R = 14
+const MIN_WORLD_W = 360
+const MIN_WORLD_H = 260
 
 interface View {
   x: number
   y: number
+  w: number
+  h: number
+}
+
+interface World {
   w: number
   h: number
 }
@@ -40,7 +47,9 @@ export default function Graph({
   const [selected, setSelected] = useState<number | null>(null)
   const [query, setQuery] = useState('')
   const [moduleFilter, setModuleFilter] = useState('')
+  const [panelOpen, setPanelOpen] = useState(false)
   const [view, setView] = useState<View>({ x: 0, y: 0, w: WORLD_W, h: WORLD_H })
+  const [world, setWorld] = useState<World>({ w: WORLD_W, h: WORLD_H })
   const svgRef = useRef<SVGSVGElement>(null)
   const dragRef = useRef<{ x: number; y: number; view: View; moved: boolean } | null>(null)
 
@@ -51,6 +60,7 @@ export default function Graph({
         setGraph(g)
         setSelected(null)
         setNotice('')
+        setPanelOpen(false)
       })
       .catch((e: Error) => setNotice(e.message))
   }, [courseId])
@@ -76,7 +86,7 @@ export default function Graph({
       const rect = svg.getBoundingClientRect()
       setView((v) => {
         const factor = e.deltaY < 0 ? 0.86 : 1.16
-        const w = Math.min(Math.max(v.w * factor, 300), 2600)
+        const w = Math.min(Math.max(v.w * factor, 240), 3200)
         const h = w * (v.h / v.w)
         const px = rect.width ? (e.clientX - rect.left) / rect.width : 0.5
         const py = rect.height ? (e.clientY - rect.top) / rect.height : 0.5
@@ -87,14 +97,35 @@ export default function Graph({
     return () => svg.removeEventListener('wheel', onWheel)
   }, [ready])
 
+  useEffect(() => {
+    if (!ready) return
+    const svg = svgRef.current
+    if (!svg) return
+    // 世界坐标跟随画布实际尺寸：布局按容器宽高比展开，避免固定 1180×780 留白、整体缩得太小
+    const measure = () => {
+      const rect = svg.getBoundingClientRect()
+      if (rect.width < 40 || rect.height < 40) return
+      const w = Math.max(MIN_WORLD_W, Math.round(rect.width))
+      const h = Math.max(MIN_WORLD_H, Math.round(rect.height))
+      setWorld((prev) => (prev.w === w && prev.h === h ? prev : { w, h }))
+      setView({ x: 0, y: 0, w, h })
+    }
+    const timer = setTimeout(measure, 0)
+    window.addEventListener('resize', measure)
+    return () => {
+      clearTimeout(timer)
+      window.removeEventListener('resize', measure)
+    }
+  }, [ready])
+
   const modules = useMemo(() => (graph ? moduleOrder(graph.nodes) : []), [graph])
   const moduleIndex = useMemo(() => new Map(modules.map((m, i) => [m, i])), [modules])
   const positions = useMemo(
     () =>
       ready
-        ? layoutGraph(graph.nodes, graph.edges, WORLD_W, WORLD_H)
+        ? layoutGraph(graph.nodes, graph.edges, world.w, world.h)
         : new Map<number, { x: number; y: number }>(),
-    [ready, graph],
+    [ready, graph, world],
   )
   const related = useMemo(() => {
     if (!graph || selected === null) return []
@@ -131,6 +162,7 @@ export default function Graph({
       await regenerateGraph(courseId)
       setNotice('')
       setSelected(null)
+      setPanelOpen(false)
       setGraph((g) => (g ? { ...g, status: 'generating', error: '' } : g))
     } catch (e) {
       setNotice((e as Error).message)
@@ -139,7 +171,7 @@ export default function Graph({
 
   function zoomBy(factor: number) {
     setView((v) => {
-      const w = Math.min(Math.max(v.w * factor, 300), 2600)
+      const w = Math.min(Math.max(v.w * factor, 240), 3200)
       const h = w * (v.h / v.w)
       return { x: v.x + (v.w - w) / 2, y: v.y + (v.h - h) / 2, w, h }
     })
@@ -165,7 +197,10 @@ export default function Graph({
   function onPointerUp() {
     const drag = dragRef.current
     dragRef.current = null
-    if (drag && !drag.moved) setSelected(null)
+    if (drag && !drag.moved) {
+      setSelected(null)
+      setPanelOpen(false)
+    }
   }
 
   if (courseId === null) {
@@ -173,8 +208,8 @@ export default function Graph({
   }
 
   return (
-    <div className="lib-page">
-      <aside className="sidebar">
+    <div className="lib-page graph-page">
+      <aside className={panelOpen ? 'sidebar graph-panel open' : 'sidebar graph-panel'}>
         <div className="section-title">
           课程脉络
           <button className="link" onClick={regenerate} disabled={graph?.status === 'generating'}>
@@ -219,7 +254,10 @@ export default function Graph({
                 <li key={n.id}>
                   <button
                     className={selected === n.id ? 'graph-concept active' : 'graph-concept'}
-                    onClick={() => setSelected(n.id)}
+                    onClick={() => {
+                      setSelected(n.id)
+                      setPanelOpen(false)
+                    }}
                   >
                     <span className="legend-dot" style={{ background: colorOf(n.module) }} />
                     <span className="graph-concept-name">{n.name}</span>
@@ -273,6 +311,13 @@ export default function Graph({
         ) : (
           <div className="graph-canvas">
             <div className="graph-toolbar">
+              <button
+                className="mini ghost graph-panel-toggle"
+                onClick={() => setPanelOpen((v) => !v)}
+                title="显示/隐藏概念列表"
+              >
+                概念
+              </button>
               <button className="mini ghost" onClick={() => zoomBy(0.86)} title="放大">
                 ＋
               </button>
@@ -281,7 +326,7 @@ export default function Graph({
               </button>
               <button
                 className="mini ghost"
-                onClick={() => setView({ x: 0, y: 0, w: WORLD_W, h: WORLD_H })}
+                onClick={() => setView({ x: 0, y: 0, w: world.w, h: world.h })}
               >
                 重置
               </button>
@@ -399,7 +444,7 @@ export default function Graph({
         )}
       </main>
 
-      <aside className="graph-side">
+      <aside className={selectedNode ? 'graph-side open' : 'graph-side'}>
         {selectedNode ? (
           <div className="graph-detail">
             <div className="graph-detail-head">

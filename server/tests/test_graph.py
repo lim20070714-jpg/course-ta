@@ -56,6 +56,40 @@ def test_parse_graph_text_concept_without_module() -> None:
     assert parsed["modules"][0]["name"] == "其他"
 
 
+def test_parse_relations_variants() -> None:
+    text = (
+        "前置: 基尔霍夫定律 -> 戴维南定理\n"
+        "相关： 戴维南定理 -- 诺顿定理\n"
+        "随便一句\n"
+        "- 前置: 电阻 → 欧姆定律（直流）\n"
+    )
+    edges = graph_core.parse_relations(text)
+    assert edges[0] == {"source": "基尔霍夫定律", "target": "戴维南定理", "relation": "prerequisite"}
+    assert edges[1]["relation"] == "related"
+    assert edges[2]["target"] == "欧姆定律"
+
+
+def test_merge_edges_dedupe_symmetry_and_self_loop() -> None:
+    edges = [
+        {"source": "A", "target": "B", "relation": "prerequisite"},
+        {"source": "A ", "target": " B", "relation": "prerequisite"},
+        {"source": "C", "target": "C", "relation": "related"},
+        {"source": "D", "target": "E", "relation": "related"},
+        {"source": "E", "target": "D", "relation": "related"},
+    ]
+    merged = graph_core.merge_edges(edges)
+    assert len(merged) == 2
+    assert merged[0]["relation"] == "prerequisite"
+
+
+def test_resolve_concept_exact_and_containment() -> None:
+    index = {"基尔霍夫定律": 1, "戴维南定理": 2, "诺顿定理": 3}
+    assert graph_core.resolve_concept("基尔霍夫定律", index) == 1
+    assert graph_core.resolve_concept("基尔霍夫", index) == 1
+    assert graph_core.resolve_concept("定理", index) is None
+    assert graph_core.resolve_concept("无关概念", index) is None
+
+
 def _module(name: str, concept: str) -> dict:
     return {"name": name, "concepts": [{"name": concept, "desc": "", "keywords": []}]}
 

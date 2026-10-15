@@ -133,6 +133,12 @@ export const QUICK_SYMBOLS = [
   '^2',
 ]
 
+/** 矩阵模板：选中线性代数操作时提供快捷插入。 */
+export const MATRIX_TEMPLATES = [
+  { label: '2×2 矩阵', text: '\\begin{pmatrix}a&b\\\\c&d\\end{pmatrix}' },
+  { label: '3×3 矩阵', text: '\\begin{pmatrix}a&b&c\\\\d&e&f\\\\g&h&i\\end{pmatrix}' },
+]
+
 /** 把表达式包装为可预览的 LaTeX（普通语法按 $...$ 直出）。 */
 export function toPreviewTex(expr: string): string {
   return `$${expr}$`

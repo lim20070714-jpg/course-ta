@@ -43,13 +43,28 @@ _MERGE_SYSTEM = """你是课程知识架构专家。给你一份课程的候选�
 前置: 概念A -> 概念B
 相关: 概念C -- 概念D"""
 
+_RELATE_SYSTEM = """你是课程知识架构专家。下面是一门课最终确定的概念清单（编号. 概念名｜所属模块｜解释）。
+请只为这些概念建立关系网络，不再新增或合并概念。
+
+要求：
+1. 概念名必须原样照抄清单，不要改写、不要加括号注释。
+2. 「前置」表示学习依赖：箭头 A -> B 意为先掌握 A 才能学 B；链条只沿学习进度向后指，尽量连相邻模块或同模块内的概念。
+3. 「相关」表示并列、对照或常一起出现、彼此互不前置的概念。
+4. 覆盖面优先：每个概念至少要出现在一条关系里，总量不少于 {min_edges} 条；宁准勿滥，但不要回避明确的关系。
+
+输出格式（严格遵守，每条一行，不要输出其他内容）：
+前置: 概念A -> 概念B
+相关: 概念C -- 概念D"""
+
 _BATCH_CHAR_BUDGET = 6000
 _CONCURRENCY = 3
 _MAX_TOKENS_BATCH = 2048
 _MAX_TOKENS_MERGE = 6000
+_MAX_TOKENS_RELATE = 6000
 _TIMEOUT_S = 300.0
 _MAX_CANDIDATES = 200
 _MAX_CONCEPTS = 64
+_MAX_EDGES = 300
 
 
 async def _complete(system: str, user: str, max_tokens: int) -> str:
@@ -124,6 +139,44 @@ def _strip_note(text: str) -> str:
     return re.sub(r"[（(].*$", "", text).strip()
 
 
+_EDGE_RE = re.compile(r"^(前置|相关)\s*:\s*(.+?)\s*(?:->|→|-->|--|—>)\s*(.+)$")
+
+
+def _edge_from_line(line: str) -> dict[str, str] | None:
+    edge_match = _EDGE_RE.match(line.replace("：", ":"))
+    if not edge_match:
+        return None
+    return {
+        "source": _strip_note(edge_match.group(2))[:40],
+        "target": _strip_note(edge_match.group(3))[:40],
+        "relation": "prerequisite" if edge_match.group(1) == "前置" else "related",
+    }
+
+
+def parse_relations(text: str) -> list[dict[str, str]]:
+    """解析「前置: A -> B」「相关: C -- D」关系行（用于专门的关系抽取轮次）。"""
+    edges: list[dict[str, str]] = []
+    for raw in text.splitlines():
+        edge = _edge_from_line(raw.strip().lstrip("*-•# ").strip())
+        if edge and edge["source"] and edge["target"]:
+            edges.append(edge)
+    return edges
+
+
+def merge_edges(edges: list[dict[str, str]]) -> list[dict[str, str]]:
+    """并集去重：同名（去空白）去重，自环丢弃，「相关」按无向去重，总量封顶。"""
+    merged: dict[tuple[str, str, str], dict[str, str]] = {}
+    for edge in edges:
+        source, target = _norm_name(edge["source"]), _norm_name(edge["target"])
+        if not source or not target or source == target:
+            continue
+        relation = edge["relation"]
+        if relation == "related" and target < source:
+            source, target = target, source
+        merged.setdefault((source, target, relation), edge)
+    return list(merged.values())[:_MAX_EDGES]
+
+
 def parse_graph_text(text: str) -> dict[str, Any]:
     """解析二级合并输出：总览 + 模块/概念 + 前置/相关关系。"""
     overview = ""
@@ -158,15 +211,9 @@ def parse_graph_text(text: str) -> dict[str, Any]:
             continue
         if line.startswith("【关系】"):
             continue
-        edge_match = re.match(r"^(前置|相关)\s*:\s*(.+?)\s*(?:->|→|-->|--|—>)\s*(.+)$", line)
-        if edge_match:
-            edges.append(
-                {
-                    "source": _strip_note(edge_match.group(2))[:40],
-                    "target": _strip_note(edge_match.group(3))[:40],
-                    "relation": "prerequisite" if edge_match.group(1) == "前置" else "related",
-                }
-            )
+        edge = _edge_from_line(line)
+        if edge:
+            edges.append(edge)
     return {
         "overview": overview,
         "modules": [m for m in modules if m["concepts"]],
@@ -209,6 +256,30 @@ def anchor_concept(concept: dict[str, Any], index: list[dict[str, Any]]) -> tupl
 
 def _norm_name(text: str) -> str:
     return re.sub(r"\s+", "", text)
+
+
+def _concept_listing(modules: list[dict[str, Any]]) -> str:
+    """把最终概念清单编号列出，供关系抽取轮次使用。"""
+    lines: list[str] = []
+    index = 0
+    for module in modules:
+        for concept in module["concepts"]:
+            index += 1
+            lines.append(f"{index}. {concept['name']}｜{module['name']}｜{concept['desc'][:50]}")
+    return "\n".join(lines)
+
+
+def resolve_concept(name: str, name_to_id: dict[str, int]) -> int | None:
+    """概念名 → id：先精确匹配（去空白后），失败再用唯一包含匹配兜底 LLM 的写法差异。"""
+    key = _norm_name(name)
+    if not key:
+        return None
+    if key in name_to_id:
+        return name_to_id[key]
+    if len(key) < 2:
+        return None
+    hits = [cid for norm, cid in name_to_id.items() if key in norm or norm in key]
+    return hits[0] if len(hits) == 1 else None
 
 
 def order_modules(modules: list[dict[str, Any]], edges: list[dict[str, str]]) -> list[dict[str, Any]]:
@@ -348,7 +419,19 @@ async def generate_graph(course_id: int) -> None:
         parsed = parse_graph_text(merged)
         if not parsed["modules"]:
             raise ValueError(f"合并结果解析失败：{merged[:150]!r}")
-        parsed["modules"] = order_modules(parsed["modules"], parsed["edges"])
+        base_edges = parsed["edges"]
+        parsed["modules"] = order_modules(parsed["modules"], base_edges)
+
+        # 专门的关系抽取轮次：合并阶段的注意力在结构上，关系常偏少，这里基于最终概念清单补齐
+        concept_count = sum(len(m["concepts"]) for m in parsed["modules"])
+        relate_system = _RELATE_SYSTEM.replace("{min_edges}", str(max(30, concept_count)))
+        try:
+            relate_text = await _complete(
+                relate_system, _concept_listing(parsed["modules"]), _MAX_TOKENS_RELATE
+            )
+            parsed["edges"] = merge_edges(base_edges + parse_relations(relate_text))
+        except Exception:  # noqa: BLE001  关系增强失败时保留合并阶段的基础关系
+            parsed["edges"] = merge_edges(base_edges)
 
         index = build_index(rows)
         with Session(db.engine) as session:
@@ -378,8 +461,8 @@ async def generate_graph(course_id: int) -> None:
                     name_to_id[key] = row.id or 0
                     order += 1
             for edge in parsed["edges"]:
-                source = name_to_id.get(_norm_name(edge["source"]))
-                target = name_to_id.get(_norm_name(edge["target"]))
+                source = resolve_concept(edge["source"], name_to_id)
+                target = resolve_concept(edge["target"], name_to_id)
                 if not source or not target or source == target:
                     continue
                 session.add(

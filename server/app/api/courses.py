@@ -1,14 +1,16 @@
 import time
 from pathlib import Path
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Form, HTTPException, UploadFile
 from sqlmodel import Session, select
 
 from app import db
 from app.config import settings
+from app.core import problems as problems_core
 from app.core.ingest import ingest_material
+from app.core.kinds import VALID_KINDS, detect_kind
 from app.models import Course, Material
-from app.schemas import CourseCreate, CourseRead, MaterialRead
+from app.schemas import CourseCreate, CourseRead, MaterialKindUpdate, MaterialRead
 
 router = APIRouter(tags=["courses"])
 
@@ -46,12 +48,18 @@ def list_materials(course_id: int) -> list[Material]:
 
 @router.post("/courses/{course_id}/materials", response_model=MaterialRead)
 async def upload_material(
-    course_id: int, file: UploadFile, background_tasks: BackgroundTasks
+    course_id: int,
+    file: UploadFile,
+    background_tasks: BackgroundTasks,
+    kind: str = Form("auto"),
 ) -> Material:
     filename = Path(file.filename or "untitled").name  # 防路径穿越
     suffix = Path(filename).suffix.lower()
     if suffix not in SUPPORTED_SUFFIXES:
         raise HTTPException(400, f"暂不支持 {suffix or '该'} 类型，请上传 PDF / PPTX / TXT / MD")
+    if kind != "auto" and kind not in VALID_KINDS:
+        raise HTTPException(400, f"未知材料类型：{kind}")
+    resolved_kind = detect_kind(filename) if kind == "auto" else kind
     with Session(db.engine) as session:
         if session.get(Course, course_id) is None:
             raise HTTPException(404, "课程不存在")
@@ -61,9 +69,32 @@ async def upload_material(
         if target.exists():
             target = target_dir / f"{Path(filename).stem}-{int(time.time())}{suffix}"
         target.write_bytes(await file.read())
-        material = Material(course_id=course_id, filename=target.name, stored_path=str(target))
+        material = Material(
+            course_id=course_id,
+            filename=target.name,
+            stored_path=str(target),
+            kind=resolved_kind,
+        )
         session.add(material)
         session.commit()
         session.refresh(material)
     background_tasks.add_task(ingest_material, material.id)
+    if resolved_kind == "exam":  # 试题入库后自动切割题目（不做知识总结）
+        background_tasks.add_task(problems_core.run_extraction, material.id)
     return material
+
+
+@router.patch("/materials/{material_id}", response_model=MaterialRead)
+def update_material_kind(material_id: int, payload: MaterialKindUpdate) -> Material:
+    kind = payload.kind.strip()
+    if kind not in VALID_KINDS:
+        raise HTTPException(400, f"未知材料类型：{kind}")
+    with Session(db.engine) as session:
+        material = session.get(Material, material_id)
+        if material is None:
+            raise HTTPException(404, "材料不存在")
+        material.kind = kind
+        session.add(material)
+        session.commit()
+        session.refresh(material)
+        return material

@@ -2,12 +2,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Citation, ProblemDetail, ProblemListItem, ProblemSource, TagCount, WrongItem } from '../api'
 import {
   extractProblems,
+  fetchHint,
   getProblem,
   getWrongbook,
   listProblemSources,
   listProblemTags,
   listProblems,
+  materialKindLabel,
   pageImageUrl,
+  problemImageUrl,
   streamGrade,
   streamSolution,
 } from '../api'
@@ -52,10 +55,13 @@ export default function Bank({
 
   const [current, setCurrent] = useState<ProblemDetail | null>(null)
   const [showImage, setShowImage] = useState(false)
+  const [imgFallback, setImgFallback] = useState(false)
   const [answerText, setAnswerText] = useState('')
   const [grading, setGrading] = useState(false)
   const [verdict, setVerdict] = useState('')
   const [gradeText, setGradeText] = useState('')
+  const [hint, setHint] = useState('')
+  const [hintBusy, setHintBusy] = useState(false)
   const [solving, setSolving] = useState(false)
   const [solutionText, setSolutionText] = useState('')
   const [solutionCitations, setSolutionCitations] = useState<Citation[]>([])
@@ -131,9 +137,11 @@ export default function Bank({
       .then((d) => {
         setCurrent(d)
         setShowImage(false)
+        setImgFallback(false)
         setAnswerText('')
         setVerdict('')
         setGradeText('')
+        setHint('')
         setSolutionText('')
         setSolutionCitations([])
       })
@@ -197,6 +205,20 @@ export default function Bank({
     }
   }
 
+  async function askHint() {
+    if (!current || hintBusy) return
+    setHintBusy(true)
+    setNotice('')
+    try {
+      const resp = await fetchHint(current.id)
+      setHint(resp.hint)
+    } catch (e) {
+      setNotice((e as Error).message)
+    } finally {
+      setHintBusy(false)
+    }
+  }
+
   async function solve() {
     if (!current || solving) return
     setSolving(true)
@@ -246,6 +268,7 @@ export default function Bank({
                 >
                   {s.filename}
                 </button>
+                <span className={`kind-badge ${s.kind}`}>{materialKindLabel(s.kind)}</span>
                 <span className="prob-source-count">{s.problem_count}</span>
                 {s.status === 'ready' &&
                   (s.job_status === 'running' ? (
@@ -348,8 +371,14 @@ export default function Bank({
               {showImage && current.material_id != null && (
                 <img
                   className="prob-image"
-                  src={pageImageUrl(current.material_id, current.page)}
-                  alt="原题页图"
+                  src={
+                    imgFallback
+                      ? pageImageUrl(current.material_id, current.page)
+                      : problemImageUrl(current.id)
+                  }
+                  onError={() => setImgFallback(true)}
+                  title="已自动裁剪出该题在原试卷上的区域（含配图）；裁剪失败时显示整页"
+                  alt="原题图"
                 />
               )}
 
@@ -366,12 +395,21 @@ export default function Bank({
                   <button onClick={grade} disabled={grading}>
                     {grading ? '批改中…' : '提交批改'}
                   </button>
+                  <button className="ghost-btn" onClick={askHint} disabled={hintBusy}>
+                    {hintBusy ? '思考中…' : hint ? '换一条提示' : '先给个提示'}
+                  </button>
                   {verdict && (
                     <span className={`verdict-badge ${verdict}`}>
                       {VERDICT_TEXT[verdict] ?? verdict}
                     </span>
                   )}
                 </div>
+                {hint && (
+                  <div className="prob-hint-box">
+                    <span className="hint-label">思路提示</span>
+                    <RichText text={hint} />
+                  </div>
+                )}
                 {(grading || gradeText) && (
                   <div className="md-body bubble grade-feedback">
                     {gradeText ? (

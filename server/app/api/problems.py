@@ -1,14 +1,18 @@
 import json
 import re
 from collections.abc import AsyncIterator
+from pathlib import Path
 
+import pymupdf
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
+from fastapi.responses import Response
 from sqlalchemy import func
 from sqlmodel import Session, select
 from sse_starlette.sse import EventSourceResponse
 
 from app import db
 from app.core import problems as core
+from app.core.crops import find_problem_rect
 from app.models import Attempt, Material, Problem
 from app.schemas import (
     AttemptRead,
@@ -122,6 +126,7 @@ def problem_sources(course_id: int) -> list[ProblemSourceRead]:
                 ProblemSourceRead(
                     material_id=m.id or 0,
                     filename=m.filename,
+                    kind=m.kind,
                     status=m.status,
                     problem_count=counts.get(m.id, 0),
                     job_status=str(job.get("status", "idle")),
@@ -226,6 +231,50 @@ def problem_detail(problem_id: int) -> ProblemDetailRead:
                 for a in attempts
             ],
         )
+
+
+@router.get("/problems/{problem_id}/image")
+def problem_image(
+    problem_id: int,
+    zoom: float = Query(2.0, ge=0.5, le=4.0),
+) -> Response:
+    """题目配图：从试卷页面裁剪出该题区域（题干与配图都在内）；定位失败时退化为整页。"""
+    with Session(db.engine) as session:
+        problem = session.get(Problem, problem_id)
+        if problem is None:
+            raise HTTPException(404, "题目不存在")
+        material = session.get(Material, problem.material_id) if problem.material_id else None
+        if material is None:
+            raise HTTPException(404, "该题目没有来源材料")
+        path, filename = material.stored_path, material.filename
+        page_no, number = problem.page, problem.number
+    if Path(path).suffix.lower() != ".pdf":
+        raise HTTPException(400, f"{filename} 不是 PDF，暂不支持题目配图")
+    with pymupdf.open(path) as doc:
+        if page_no < 1 or page_no > doc.page_count:
+            raise HTTPException(404, f"页码超出范围（共 {doc.page_count} 页）")
+        page = doc[page_no - 1]
+        clip = find_problem_rect(page, number)
+        pix = page.get_pixmap(matrix=pymupdf.Matrix(zoom, zoom), clip=clip)
+    return Response(
+        content=pix.tobytes("png"),
+        media_type="image/png",
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
+
+
+@router.post("/problems/{problem_id}/hint")
+async def problem_hint(problem_id: int) -> dict[str, str]:
+    with Session(db.engine) as session:
+        problem = session.get(Problem, problem_id)
+        if problem is None:
+            raise HTTPException(404, "题目不存在")
+        session.expunge(problem)
+    try:
+        return {"hint": await core.generate_hint(problem)}
+    except Exception as exc:  # 边界：把可读错误发给前端
+        raise HTTPException(502, f"提示生成失败：{exc}") from exc
+
 
 
 @router.post("/problems/{problem_id}/grade")

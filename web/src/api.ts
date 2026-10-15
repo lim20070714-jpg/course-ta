@@ -7,10 +7,21 @@ export interface Course {
 export interface Material {
   id: number
   filename: string
+  kind: string
   status: string
   error: string
   chunk_count: number
 }
+
+export const KIND_LABELS: Record<string, string> = {
+  textbook: '教材',
+  slides: '课件',
+  handout: '讲义',
+  exam: '试题',
+  other: '其他',
+}
+
+export const materialKindLabel = (kind: string) => KIND_LABELS[kind] ?? kind
 
 export interface Citation {
   material_id: number
@@ -53,6 +64,7 @@ export interface ChatTurn {
 export interface ProblemSource {
   material_id: number
   filename: string
+  kind: string
   status: string
   problem_count: number
   job_status: string
@@ -252,11 +264,23 @@ export const searchCourse = (courseId: number, q: string, limit = 30) =>
     json<SearchResponse>(r),
   )
 
-export async function uploadMaterial(courseId: number, file: File): Promise<Material> {
+export async function uploadMaterial(
+  courseId: number,
+  file: File,
+  kind = 'auto',
+): Promise<Material> {
   const form = new FormData()
   form.append('file', file)
+  form.append('kind', kind)
   return json<Material>(await fetch(`/api/courses/${courseId}/materials`, { method: 'POST', body: form }))
 }
+
+export const updateMaterialKind = (materialId: number, kind: string) =>
+  fetch(`/api/materials/${materialId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ kind }),
+  }).then((r) => json<Material>(r))
 
 export const listProblemSources = (courseId: number) =>
   fetch(`/api/courses/${courseId}/problem-sources`).then((r) => json<ProblemSource[]>(r))
@@ -297,6 +321,14 @@ export const getWrongbook = (courseId: number) =>
 
 export const pageImageUrl = (materialId: number, page: number) =>
   `/api/materials/${materialId}/page-image?page=${page}`
+
+export const problemImageUrl = (problemId: number, zoom = 2) =>
+  `/api/problems/${problemId}/image?zoom=${zoom}`
+
+export const fetchHint = (problemId: number) =>
+  fetch(`/api/problems/${problemId}/hint`, { method: 'POST' }).then((r) =>
+    json<{ hint: string }>(r),
+  )
 
 async function streamSSE(resp: Response, on: (event: string, data: string) => void): Promise<void> {
   if (!resp.ok || !resp.body) {

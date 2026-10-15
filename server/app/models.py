@@ -19,6 +19,7 @@ class Material(SQLModel, table=True):
     course_id: int = Field(index=True, foreign_key="course.id")
     filename: str
     stored_path: str
+    kind: str = "other"  # textbook 教材 | slides 课件 | handout 讲义 | exam 试题 | other 其他
     status: str = "pending"  # pending | ingesting | ready | failed
     error: str = ""
     chunk_count: int = 0

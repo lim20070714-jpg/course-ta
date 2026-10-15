@@ -73,6 +73,13 @@ GRADE_SYSTEM = (
     "若题目依赖不可见的电路图等信息，说明基于文字部分的判断可能不完整。"
 )
 
+HINT_SYSTEM = (
+    "你是课程助教。学生正在思考一道题，请给一段简短的「思路提示」，帮助学生自己找到方向：\n"
+    "1. 点明该题考查的核心概念或该从哪一步下手（如用哪个定律、先分析哪个工作区、注意什么条件）；\n"
+    "2. 最多 3 句话，不要给出最终答案、关键数值，也不要列出完整解题步骤；\n"
+    "3. " + TEACHER_RULES
+)
+
 SOLUTION_SYSTEM = (
     "你是课程助教，请为下面这道题写出完整、严谨的解答。\n"
     "1. 先写「**思路**」简述解题方向，再写「**解答**」按步骤推导，每步注明依据"
@@ -303,6 +310,24 @@ _VERDICT_MAP = {"正确": "correct", "部分正确": "partial", "错误": "wrong
 def detect_verdict(text: str) -> str | None:
     m = _VERDICT_RE.search(text)
     return _VERDICT_MAP[m.group(1)] if m else None
+
+
+async def generate_hint(problem: Problem) -> str:
+    """一句话级别的方向提示：不泄露答案，引导学生自己做。"""
+    tags = "、".join(parse_tags(problem.knowledge))
+    prompt = f"题目（{problem.number or '未编号'}）：\n{problem.stem}"
+    if tags:
+        prompt += f"\n（知识点：{tags}）"
+    hint = await llm.complete(
+        [
+            {"role": "system", "content": HINT_SYSTEM},
+            {"role": "user", "content": prompt},
+        ],
+        max_tokens=400,
+        timeout_s=120.0,
+        model=settings.problem_model,
+    )
+    return hint.strip()
 
 
 async def stream_grade(problem: Problem, student_answer: str) -> AsyncIterator[tuple[str, Any]]:

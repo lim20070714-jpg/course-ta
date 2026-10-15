@@ -130,7 +130,15 @@ export default function App() {
       {notice && <div className="notice">{notice}</div>}
 
       {tab === 'library' && (
-        <Library key={activeCourseId ?? 'none'} courseId={activeCourseId} jump={libraryJump} />
+        <Library
+          key={activeCourseId ?? 'none'}
+          courseId={activeCourseId}
+          jump={libraryJump}
+          onOpenProblem={(problemId) => {
+            setBankJump({ problemId, seq: ++jumpSeq.current })
+            setTab('bank')
+          }}
+        />
       )}
       {tab === 'bank' && (
         <Bank key={activeCourseId ?? 'none'} courseId={activeCourseId} jump={bankJump} />

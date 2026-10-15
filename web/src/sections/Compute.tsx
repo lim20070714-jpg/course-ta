@@ -4,6 +4,7 @@ import { createFormula, deleteFormula, evaluateCompute, listFormulas, updateForm
 import RichText from '../components/RichText'
 import {
   CATEGORIES,
+  MATRIX_TEMPLATES,
   OP_GROUPS,
   QUICK_SYMBOLS,
   SYMBOL_KINDS,
@@ -260,7 +261,9 @@ export default function Compute() {
         <div className="compute-card">
           <div className="compute-input-head">
             <span className="compute-hint">
-              支持 LaTeX 或普通语法（如 2x、x^3、exp(-2t)）；定积分在下方填上下限，傅里叶变换按 ω 约定
+              {needs.matrix
+                ? '矩阵输入：[[1,2],[3,4]] 或 \\begin{pmatrix}1&2\\\\3&4\\end{pmatrix}，也可把公式库里的矩阵公式整行粘进来'
+                : '支持 LaTeX 或普通语法（如 2x、x^3、exp(-2t)）；定积分在下方填上下限，傅里叶变换按 ω 约定'}
             </span>
           </div>
           <textarea
@@ -280,6 +283,17 @@ export default function Compute() {
                 {symbolLabel(s)}
               </button>
             ))}
+            {needs.matrix &&
+              MATRIX_TEMPLATES.map((t) => (
+                <button
+                  key={t.label}
+                  className="chip mono"
+                  onClick={() => insert(t.text)}
+                  title={`插入 ${t.label}`}
+                >
+                  {t.label}
+                </button>
+              ))}
           </div>
           {expr.trim() && (
             <div className="compute-preview">

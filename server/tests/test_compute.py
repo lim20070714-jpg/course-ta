@@ -128,6 +128,40 @@ def test_evaluate_matrix_eigen() -> None:
     assert "2" in result["plain"] and "3" in result["plain"]
 
 
+def test_evaluate_matrix_det_latex_pmatrix() -> None:
+    result = compute.evaluate({"expr": r"\begin{pmatrix}1&2\\3&4\end{pmatrix}", "op": "det"})
+    assert result["plain"] == "-2"
+
+
+def test_evaluate_matrix_det_vmatrix() -> None:
+    result = compute.evaluate({"expr": r"\begin{vmatrix}1&2\\3&4\end{vmatrix}", "op": "det"})
+    assert result["plain"] == "-2"
+
+
+def test_evaluate_matrix_det_matrix_env_fallback() -> None:
+    result = compute.evaluate({"expr": r"\begin{matrix}1&2\\3&4\end{matrix}", "op": "det"})
+    assert result["plain"] == "-2"
+    array = compute.evaluate({"expr": r"\begin{array}{cc}1&2\\3&4\end{array}", "op": "det"})
+    assert array["plain"] == "-2"
+
+
+def test_evaluate_matrix_det_preset_formula_text() -> None:
+    result = compute.evaluate(
+        {"expr": r"\det\begin{pmatrix}a&b\\c&d\end{pmatrix}=ad-bc", "op": "det"}
+    )
+    assert result["plain"] == "a*d - b*c"
+
+
+def test_evaluate_matrix_det_wrapper_list() -> None:
+    result = compute.evaluate({"expr": "det([[1,2],[3,4]])", "op": "det"})
+    assert result["plain"] == "-2"
+
+
+def test_evaluate_matrix_inv_pmatrix() -> None:
+    result = compute.evaluate({"expr": r"\begin{pmatrix}1&2\\3&4\end{pmatrix}", "op": "inv"})
+    assert "3/2" in result["plain"] and "-1/2" in result["plain"]
+
+
 def test_evaluate_residue_complex() -> None:
     result = compute.evaluate({"expr": "1/(z^2+1)", "op": "residue", "var": "z", "point": "i"})
     assert result["plain"] == "-I/2"

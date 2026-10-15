@@ -383,7 +383,7 @@ async def ingest_material(material_id: int, repair: bool = True) -> None:
             material.error = (str(exc) or type(exc).__name__)[:500]
         session.add(material)
         session.commit()
-        if material.status == "ready":
+        if material.status == "ready" and material.kind != "exam":  # 试题不做知识总结
             try:
                 await summary.generate_summary(material_id)
             except Exception:  # noqa: BLE001 总结失败不影响材料入库

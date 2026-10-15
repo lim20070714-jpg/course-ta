@@ -255,7 +255,7 @@ def _dispatch(
     if op == "inverse_laplace":
         return sympy.inverse_laplace_transform(expr, var, sympy.Symbol("t"))
     if op == "det":
-        return expr.det()
+        return expr.det() if isinstance(expr, sympy.MatrixBase) else expr
     if op == "inv":
         return expr.inv()
     if op == "transpose":
@@ -283,24 +283,87 @@ def _dispatch(
     raise ValueError(f"不支持的操作：{op}")
 
 
+_DET_WRAPPER_RE = re.compile(
+    r"^\s*(?:\\operatorname\s*\{det\}|\\mathrm\s*\{det\}|\\det|det)\s*"
+)
+_MATRIX_ENV_RE = re.compile(
+    r"\\begin\{(?P<env>[a-zA-Z*]+)\}(?P<body>.*?)\\end\{(?P=env)\}", re.DOTALL
+)
+
+
+def _strip_equation_tail(raw: str) -> str:
+    """整行粘贴公式库条目时（如 \\det(...)=ad-bc）矩阵操作只取等号左边。"""
+    if "=" in raw:
+        head = raw.split("=", 1)[0].strip()
+        if head:
+            return head
+    return raw
+
+
+def _strip_det_wrapper(raw: str) -> str:
+    """剥掉 \\det / det(...) 包装，拿到其中的矩阵。"""
+    stripped = _DET_WRAPPER_RE.sub("", raw, count=1)
+    if stripped == raw:
+        return raw
+    stripped = stripped.strip()
+    for left, right in ((r"\left(", r"\right)"), ("(", ")")):
+        if stripped.startswith(left) and stripped.endswith(right):
+            return stripped[len(left):-len(right)].strip()
+    return stripped
+
+
+def _matrix_env_fallback(raw: str, symbols: dict[str, sympy.Symbol]) -> Any | None:
+    """按 & 与 \\\\ 手工拆分 \\begin{...} 环境，兜底 lark 后端不认的形式（matrix/array）。"""
+    match = _MATRIX_ENV_RE.search(raw)
+    if match is None:
+        return None
+    leftover = raw[: match.start()] + raw[match.end():]
+    leftover = leftover.replace(r"\left(", "").replace(r"\right)", "").replace("(", "").replace(")", "")
+    if leftover.strip():  # 环境不占满整个表达式（如矩阵相加）时不兜底，避免丢项
+        return None
+    body = match.group("body")
+    if match.group("env") == "array":
+        body = re.sub(r"^\s*\{[^}]*\}", "", body, count=1)
+    rows = [row for row in body.split(r"\\") if row.strip()]
+    if not rows:
+        raise ValueError("矩阵环境里没有内容")
+    values = [
+        [parse_input(cell, symbols) if cell.strip() else sympy.Integer(0) for cell in row.split("&")]
+        for row in rows
+    ]
+    if len({len(row) for row in values}) != 1:
+        raise ValueError(r"矩阵每行的元素个数不一致，请检查 & 与 \\ 的使用")
+    return sympy.Matrix(values)
+
+
 def _parse_matrix(raw: str, symbols: dict[str, sympy.Symbol]) -> Any:
     raw = raw.strip().strip("$")
+    raw = _strip_equation_tail(raw)
+    raw = _strip_det_wrapper(raw)
+    raw = raw.replace(r"\begin{vmatrix}", r"\begin{pmatrix}")  # 竖线矩阵按普通矩阵取，行列式由操作决定
+    raw = raw.replace(r"\end{vmatrix}", r"\end{pmatrix}")
     if "matrix" in raw or "array" in raw:
+        parsed = None
         try:
-            parsed = parse_latex(raw, strict=False)
-        except Exception as exc:
-            raise ValueError(f"矩阵 LaTeX 解析失败：{exc}") from exc
+            parsed = parse_latex(raw, backend="lark")  # ANTLR 语法不支持矩阵环境，用 lark 后端
+        except Exception:  # noqa: BLE001  解析失败交给手工兜底
+            parsed = None
         if isinstance(parsed, sympy.MatrixBase):
             return _apply_symbols(parsed, symbols)
+        fallback = _matrix_env_fallback(raw, symbols)
+        if fallback is not None:
+            return _apply_symbols(fallback, symbols)
+        if parsed is not None:  # lark 已把整体算式（如 \det(...)）算成标量
+            return parsed
     try:
         value = sympy.sympify(raw, locals=_local_dict(symbols))
+        if isinstance(value, sympy.MatrixBase):
+            return _apply_symbols(value, symbols)
+        return sympy.Matrix(value)
     except Exception as exc:
         raise ValueError(
             f"矩阵解析失败：{exc}（可用 [[1,2],[3,4]] 或 \\begin{{pmatrix}}…\\end{{pmatrix}}）"
         ) from exc
-    if isinstance(value, sympy.MatrixBase):
-        return _apply_symbols(value, symbols)
-    return sympy.Matrix(value)
 
 
 def _format_result(result: Any) -> dict[str, str]:
@@ -320,7 +383,11 @@ def _format_result(result: Any) -> dict[str, str]:
     latex = sympy.latex(result)
     plain = sympy.sstr(result)
     approx = ""
-    if isinstance(result, sympy.Expr) and not result.free_symbols:
+    if (
+        isinstance(result, sympy.Expr)
+        and not isinstance(result, sympy.MatrixExpr)
+        and not result.free_symbols
+    ):
         numeric = sympy.N(result, 6)
         text = sympy.sstr(numeric)
         if text != plain:

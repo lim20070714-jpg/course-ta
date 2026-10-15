@@ -1,6 +1,7 @@
 from sqlmodel import SQLModel, create_engine
 
 from app.config import settings
+from app.core.kinds import detect_kind
 
 _DB_FILE = settings.data_dir / "course_ta.db"
 engine = create_engine(
@@ -9,8 +10,26 @@ engine = create_engine(
 )
 
 
+def _ensure_material_kind() -> None:
+    """给旧库补 Material.kind 列；仅新建列时按文件名回填一次。"""
+    with engine.begin() as conn:
+        cols = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(material)")}
+        if "kind" in cols:
+            return
+        conn.exec_driver_sql(
+            "ALTER TABLE material ADD COLUMN kind VARCHAR NOT NULL DEFAULT 'other'"
+        )
+        rows = conn.exec_driver_sql("SELECT id, filename FROM material").fetchall()
+        for material_id, filename in rows:
+            conn.exec_driver_sql(
+                "UPDATE material SET kind = ? WHERE id = ?",
+                (detect_kind(str(filename)), material_id),
+            )
+
+
 def init_db() -> None:
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     import app.models  # noqa: F401  导入以注册表结构
 
     SQLModel.metadata.create_all(engine)
+    _ensure_material_kind()

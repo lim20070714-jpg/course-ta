@@ -18,9 +18,14 @@ class MaterialRead(BaseModel):
     id: int
     course_id: int
     filename: str
+    kind: str = "other"  # textbook | slides | handout | exam | other
     status: str
     error: str
     chunk_count: int
+
+
+class MaterialKindUpdate(BaseModel):
+    kind: str
 
 
 class PageOut(BaseModel):
@@ -63,6 +68,7 @@ class ChatRequest(BaseModel):
 class ProblemSourceRead(BaseModel):
     material_id: int
     filename: str
+    kind: str = "other"
     status: str
     problem_count: int
     job_status: str = "idle"  # idle | running | done | failed

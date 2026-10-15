@@ -866,6 +866,10 @@ button.citation:hover:not(:disabled) {
 
 .graph-main {
   position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .graph-canvas {
@@ -1999,4 +2003,166 @@ button.link.danger {
 .symbol-add input {
   font-size: 13px;
   padding: 6px 8px;
+}
+
+/* ===== 材料类型（kind）===== */
+
+.kind-badge {
+  flex-shrink: 0;
+  font-size: 10.5px;
+  line-height: 1;
+  padding: 3px 6px;
+  border-radius: 6px;
+  background: #eef1f6;
+  color: #5a6478;
+  border: 1px solid #e2e6ee;
+}
+
+.kind-badge.exam {
+  background: #fff2e0;
+  color: #9a5b00;
+  border-color: #f3ddba;
+}
+
+.kind-badge.textbook {
+  background: #e8f3ec;
+  color: #20603c;
+  border-color: #cfe6d8;
+}
+
+.kind-badge.slides {
+  background: #e8edfb;
+  color: #23408e;
+  border-color: #ccd8f6;
+}
+
+.kind-badge.handout {
+  background: #f1eafc;
+  color: #5b3a9c;
+  border-color: #e0d3f5;
+}
+
+.upload-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-top: auto;
+}
+
+.upload-row .upload {
+  flex: 1;
+  margin-top: 0;
+}
+
+select.kind-select {
+  flex-shrink: 0;
+  font-size: 12px;
+  padding: 6px 4px;
+  border: 1px solid #d6dbe6;
+  border-radius: 8px;
+  background: #fff;
+  color: #444c5e;
+  cursor: pointer;
+}
+
+.reader-title select.kind-select.slim {
+  margin-left: 8px;
+  vertical-align: middle;
+  font-size: 11.5px;
+  padding: 3px 4px;
+  font-weight: 400;
+}
+
+.exam-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+
+.exam-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.exam-panel-count {
+  font-size: 13px;
+  color: #444c5e;
+  font-weight: 600;
+}
+
+.prob-hint-box {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #fffaf0;
+  border: 1px solid #f0e2c2;
+  font-size: 13.5px;
+  color: #4a4437;
+}
+
+.prob-hint-box .hint-label {
+  display: inline-block;
+  font-size: 11px;
+  color: #9a5b00;
+  background: #fdeecd;
+  border-radius: 6px;
+  padding: 2px 6px;
+  margin-right: 8px;
+  vertical-align: 1px;
+}
+
+/* ---------- 知识图谱：窄屏适配（面板改为浮层，保证画布宽度） ---------- */
+
+.lib-page.graph-page {
+  position: relative;
+}
+
+.graph-panel-toggle {
+  display: none;
+}
+
+@media (max-width: 1160px) {
+  .graph-side {
+    display: none;
+  }
+
+  .graph-side.open {
+    display: block;
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(320px, 88vw);
+    z-index: 25;
+    box-shadow: -10px 0 28px rgba(15, 23, 42, 0.14);
+  }
+}
+
+@media (max-width: 900px) {
+  .graph-panel-toggle {
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .sidebar.graph-panel {
+    display: none;
+  }
+
+  .sidebar.graph-panel.open {
+    display: flex;
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: min(300px, 86vw);
+    z-index: 30;
+    box-shadow: 10px 0 28px rgba(15, 23, 42, 0.14);
+  }
+
+  .graph-hint {
+    display: none;
+  }
 }
