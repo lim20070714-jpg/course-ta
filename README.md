@@ -1,17 +1,17 @@
-# CourseTA · 开源课程 AI 助教
+# CourseTA · 开源课程学习平台
 
-把任意一门课的课件（PDF / PPTX）变成一位**回答带引用**的 AI 助教。学生随问随答，答案标注 `[来源: 文件名 第X页]`，可逐条核对。
+把任意一门课的课件（PDF / PPTX）变成**可检索、可练习、可视化的学习系统**：资料分区浏览、带引用的 AI 答疑、题库与解答、知识图谱、电路仿真实验台。答案标注 `[来源: 文件名 第X页]`，可逐条核对。
 
-> 面向所有学生的通用工具：不绑定某一门课、某一位老师、某一所学校。上传你课程的材料，它就是你课程的助教。
+> 面向所有学生的通用工具：不绑定某一门课、某一位老师、某一所学校。上传你课程的材料，它就是你课程的学习平台。
 >
-> Turn any course's slides (PDF / PPTX) into a citation-backed AI teaching assistant. Upload your materials, ask questions, verify every answer against the source page.
+> Turn any course's materials (PDF / PPTX) into a citation-backed learning platform: browse and search source pages, practice exam questions with solutions, explore a concept knowledge graph, and simulate circuits — every AI answer cites its source page.
 
 ## 它解决什么问题
 
 - 课件几百页，考前翻不动：直接提问，答案定位到页
 - 答疑时间有限：夜间、周末也能得到有材料依据的回答
 - 通用聊天机器人容易编造：CourseTA 的答案必须引用课程材料，材料不足会明确说明
-- （v0.2 规划）学生提交自己的推导，工具逐步验证，指出**第一个出错的地方**
+- （v0.4 规划）学生提交自己的推导，工具逐步验证，指出**第一个出错的地方**
 
 ## 架构
 
@@ -35,10 +35,11 @@ flowchart LR
 - [x] 自研电路仿真引擎（改进节点法：直流工作点 / 瞬态 / 交流扫频）
 - [x] 交互实验台 v0.2：5 个预置实验（分压器 / RC / RL / RC 低通 / RLC 谐振）+ 参数滑块 + 波形与波特图
 - [x] 评测集与自动评测脚本（按关键点命中率打分）
-- [ ] v0.3 电路自由画布（拖放元件、连线、自定义仿真）
-- [ ] v0.4 题目训练：作答步骤级验证（指出第一个出错的步骤）+ 错题本
-- [ ] v0.5 知识地图 + 周期复习计划（SM-2 间隔复习）
-- [ ] v0.6 多课程公开部署、老师端数据面板
+- [ ] v0.3 课程资料分区：材料分类浏览、分页阅读器、全文搜索、引用跳转 + 分区导航（资料 / 题库 / 图谱 / 实验台）
+- [ ] v0.4 题库与解答：真题解析为结构化题目（题干 + 解答 + 知识点标签），练习闭环，作答步骤级验证 + 错题本
+- [ ] v0.5 知识图谱：LLM 全局抽取概念与前置关系，交互式概念网络，节点关联资料页 / 题目 / 实验
+- [ ] v0.6 复习计划：基于题库与图谱的 SM-2 间隔复习与周期计划
+- [ ] v0.7 多课程公开部署、老师端数据面板
 
 ## 快速开始
 
