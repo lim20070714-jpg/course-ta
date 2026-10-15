@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { Course } from './api'
 import { createCourse, listCourses } from './api'
 import LabPage from './components/LabPage'
+import Bank from './sections/Bank'
 import Library from './sections/Library'
 
 type Tab = 'library' | 'bank' | 'graph' | 'lab'
@@ -107,35 +108,24 @@ export default function App() {
       {notice && <div className="notice">{notice}</div>}
 
       {tab === 'library' && <Library key={activeCourseId ?? 'none'} courseId={activeCourseId} />}
+      {tab === 'bank' && <Bank key={activeCourseId ?? 'none'} courseId={activeCourseId} />}
       {tab === 'lab' && <LabPage />}
-      {(tab === 'bank' || tab === 'graph') && <Placeholder tab={tab} onGo={() => setTab('library')} />}
+      {tab === 'graph' && <Placeholder onGo={() => setTab('library')} />}
     </div>
   )
 }
 
-function Placeholder({ tab, onGo }: { tab: 'bank' | 'graph'; onGo: () => void }) {
-  const info =
-    tab === 'bank'
-      ? {
-          title: '题库与解答',
-          desc: '把真题与习题整理成结构化题目：题干、解答步骤、知识点标签，配合练习闭环与错题本。',
-          plan: [
-            '真题结构化：题干 + 参考答案 + 知识点标签',
-            '练习闭环：按知识点选题、作答、步骤级验证',
-            '错题本：自动收集错题，并关联到资料对应页',
-          ],
-          note: '规划于 v0.4 实现',
-        }
-      : {
-          title: '知识图谱',
-          desc: '从课件与教材中抽取概念及其前置关系，形成可交互的课程知识图谱，串联资料、题目与实验。',
-          plan: [
-            'LLM 抽取概念、定义与前置关系',
-            '交互式图谱：缩放、拖拽、按章节着色',
-            '概念页：定义、出处页码、相关题目与实验',
-          ],
-          note: '规划于 v0.5 实现',
-        }
+function Placeholder({ onGo }: { onGo: () => void }) {
+  const info = {
+    title: '知识图谱',
+    desc: '从课件与教材中抽取概念及其前置关系，形成可交互的课程知识图谱，串联资料、题目与实验。',
+    plan: [
+      'LLM 抽取概念、定义与前置关系',
+      '交互式图谱：缩放、拖拽、按章节着色',
+      '概念页：定义、出处页码、相关题目与实验',
+    ],
+    note: '规划于 v0.5 实现',
+  }
   return (
     <div className="placeholder-page">
       <div className="placeholder-card">
@@ -146,7 +136,7 @@ function Placeholder({ tab, onGo }: { tab: 'bank' | 'graph'; onGo: () => void })
             <li key={item}>{item}</li>
           ))}
         </ul>
-        <p className="placeholder-note">{info.note}，当前先完成课程资料分区。</p>
+        <p className="placeholder-note">{info.note}，当前可先使用课程资料与题库分区。</p>
         <button onClick={onGo}>去浏览课程资料</button>
       </div>
     </div>

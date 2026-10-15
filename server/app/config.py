@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     llm_api_key: str = ""
     llm_base_url: str = "https://api.deepseek.com/v1"
     llm_model: str = "deepseek-chat"
+    extract_model: str = ""  # 题目抽取可单独指定更强的模型；留空则用 llm_model
 
     embedding_api_key: str = ""
     embedding_base_url: str = ""
@@ -19,6 +20,10 @@ class Settings(BaseSettings):
     top_k: int = 6
     chunk_size: int = 500
     chunk_overlap: int = 80
+
+    @property
+    def problem_model(self) -> str:
+        return self.extract_model or self.llm_model
 
     @property
     def embed_base_url(self) -> str:

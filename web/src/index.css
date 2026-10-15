@@ -895,3 +895,309 @@ button.citation:hover:not(:disabled) {
   color: #9aa1b2;
   margin: 0 0 16px;
 }
+
+/* ---------- 题库与解答分区 ---------- */
+
+.bank-sources {
+  max-height: 32vh;
+  overflow-y: auto;
+}
+
+.prob-source {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 2px 3px 6px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+}
+
+.prob-source.active {
+  background: #e8edfb;
+  border-color: #c9d5f5;
+}
+
+.prob-source-name {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  font-size: 12.5px;
+  background: none;
+  border: none;
+  color: #444c5e;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 2px 0;
+}
+
+.prob-source-name:hover {
+  color: #2f5bd8;
+}
+
+.prob-source-count {
+  font-size: 11px;
+  color: #23408e;
+  background: #eef2fc;
+  border-radius: 999px;
+  padding: 1px 7px;
+  flex-shrink: 0;
+}
+
+.prob-source-job {
+  font-size: 11.5px;
+  color: #8a5a00;
+  flex-shrink: 0;
+}
+
+.bank-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 2px 4px 8px;
+}
+
+.bank-tag {
+  font-size: 12px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid #dfe3ec;
+  background: #fff;
+  color: #444c5e;
+  cursor: pointer;
+}
+
+.bank-tag:hover {
+  background: #f0f2f7;
+}
+
+.bank-tag.active {
+  background: #23408e;
+  border-color: #23408e;
+  color: #fff;
+}
+
+.bank-tag.warn {
+  color: #b3541e;
+}
+
+.bank-tag.active.warn {
+  background: #d97742;
+  border-color: #d97742;
+  color: #fff;
+}
+
+.prob-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 860px;
+}
+
+.prob-card {
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid #e4e7ee;
+  border-radius: 12px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.prob-card:hover {
+  border-color: #c9d5f5;
+  background: #fafbff;
+}
+
+.prob-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.prob-src-slim {
+  font-size: 12px;
+  color: #8a91a3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.prob-excerpt {
+  font-size: 13.5px;
+  color: #1f2430;
+  line-height: 1.65;
+}
+
+.prob-excerpt.feedback {
+  font-size: 12.5px;
+  color: #8a5a00;
+}
+
+.prob-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.tag {
+  font-size: 11.5px;
+  color: #23408e;
+  background: #eef2fc;
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+.prob-attempt-count {
+  font-size: 11.5px;
+  color: #8a91a3;
+}
+
+.verdict-badge {
+  font-size: 12px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-weight: 600;
+}
+
+.verdict-badge.small {
+  font-size: 11px;
+  padding: 1px 8px;
+}
+
+.verdict-badge.correct {
+  background: #e3f4e8;
+  color: #1d7a3f;
+}
+
+.verdict-badge.partial {
+  background: #fff4dc;
+  color: #9a6a00;
+}
+
+.verdict-badge.wrong {
+  background: #fde8e6;
+  color: #b3372c;
+}
+
+.verdict-badge.unknown {
+  background: #eef0f4;
+  color: #5a6274;
+}
+
+.prob-detail {
+  max-width: 860px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.prob-stem {
+  font-size: 14px;
+}
+
+.prob-image {
+  width: 100%;
+  max-width: 720px;
+  border: 1px solid #e4e7ee;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.md-body {
+  background: #fff;
+  border: 1px solid #e4e7ee;
+  border-radius: 12px;
+}
+
+.prob-section {
+  border-top: 1px dashed #e4e7ee;
+  padding-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.prob-section h4 {
+  margin: 0;
+  font-size: 14px;
+  color: #23408e;
+}
+
+.prob-answer-input {
+  width: 100%;
+  resize: vertical;
+  font-size: 13.5px;
+  line-height: 1.6;
+  padding: 10px 12px;
+  border: 1px solid #dfe3ec;
+  border-radius: 10px;
+  font-family: inherit;
+}
+
+.prob-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.prob-hint {
+  font-size: 13px;
+  color: #8a91a3;
+  margin: 0;
+}
+
+.grade-feedback {
+  border-left: 3px solid #23408e;
+}
+
+.citation-static {
+  font-size: 12px;
+  color: #5a6274;
+  background: #f0f2f7;
+  border-radius: 999px;
+  padding: 3px 10px;
+}
+
+.prob-history {
+  border-top: 1px dashed #e4e7ee;
+  padding-top: 12px;
+  font-size: 13px;
+}
+
+.prob-history summary {
+  cursor: pointer;
+  color: #5a6274;
+}
+
+.prob-attempt {
+  margin: 10px 0;
+  padding: 10px 12px;
+  background: #fafbfd;
+  border: 1px solid #eceff5;
+  border-radius: 10px;
+}
+
+.prob-attempt-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.prob-attempt-answer {
+  margin: 0 0 6px;
+  white-space: pre-wrap;
+  font-size: 12.5px;
+  color: #444c5e;
+}
+
+.prob-attempt summary {
+  font-size: 12px;
+}

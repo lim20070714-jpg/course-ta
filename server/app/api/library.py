@@ -1,4 +1,8 @@
+from pathlib import Path
+
+import pymupdf
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import Response
 from sqlalchemy import func
 from sqlmodel import Session, select
 
@@ -50,6 +54,31 @@ def material_pages(
             limit=limit,
             pages=pages,
         )
+
+
+@router.get("/materials/{material_id}/page-image")
+def material_page_image(
+    material_id: int,
+    page: int = Query(1, ge=1),
+    zoom: float = Query(2.0, ge=0.5, le=4.0),
+) -> Response:
+    """把 PDF 的某一页渲染为 PNG，用于查看电路图等一图胜千言的内容。"""
+    with Session(db.engine) as session:
+        material = session.get(Material, material_id)
+        if material is None:
+            raise HTTPException(404, "材料不存在")
+        path, filename = material.stored_path, material.filename
+    if Path(path).suffix.lower() != ".pdf":
+        raise HTTPException(400, f"{filename} 不是 PDF，暂不支持页图渲染")
+    with pymupdf.open(path) as doc:
+        if page > doc.page_count:
+            raise HTTPException(404, f"页码超出范围（共 {doc.page_count} 页）")
+        pix = doc[page - 1].get_pixmap(matrix=pymupdf.Matrix(zoom, zoom))
+    return Response(
+        content=pix.tobytes("png"),
+        media_type="image/png",
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
 
 
 @router.get("/courses/{course_id}/search", response_model=SearchRead)

@@ -50,11 +50,23 @@ async def chat_stream(messages: list[dict]) -> AsyncIterator[str]:
                 yield content
 
 
-async def complete(messages: list[dict]) -> str:
-    """非流式调用，用于评测等场景。"""
+async def complete(
+    messages: list[dict],
+    max_tokens: int | None = None,
+    timeout_s: float | None = None,
+    model: str | None = None,
+) -> str:
+    """非流式调用，用于评测、题目抽取等场景；model 可覆盖默认对话模型。"""
     _require_chat_key()
-    payload = {"model": settings.llm_model, "messages": messages, "stream": False}
-    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+    payload: dict = {
+        "model": model or settings.llm_model,
+        "messages": messages,
+        "stream": False,
+    }
+    if max_tokens:
+        payload["max_tokens"] = max_tokens
+    timeout = httpx.Timeout(timeout_s, connect=20.0) if timeout_s else _TIMEOUT
+    async with httpx.AsyncClient(timeout=timeout) as client:
         resp = await client.post(
             f"{settings.llm_base_url}/chat/completions",
             json=payload,

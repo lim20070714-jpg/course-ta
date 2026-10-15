@@ -33,3 +33,24 @@ class Chunk(SQLModel, table=True):
     seq: int = 0
     text: str
     embedding: bytes | None = Field(default=None)
+
+
+class Problem(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    course_id: int = Field(index=True, foreign_key="course.id")
+    material_id: int | None = Field(default=None, index=True, foreign_key="material.id")
+    page: int = 0
+    number: str = ""  # 题号，如「一、1」「3」
+    stem: str = ""  # 题干（Markdown + LaTeX）
+    answer: str = ""  # 参考答案/解析（材料自带，可能为空）
+    knowledge: str = "[]"  # 知识点标签，JSON 数组字符串
+    created_at: datetime = Field(default_factory=_now)
+
+
+class Attempt(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    problem_id: int = Field(index=True, foreign_key="problem.id")
+    answer_text: str = ""
+    verdict: str = "unknown"  # correct | partial | wrong | unknown
+    feedback: str = ""
+    created_at: datetime = Field(default_factory=_now)

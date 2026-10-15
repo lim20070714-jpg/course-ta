@@ -11,7 +11,7 @@
 - 课件几百页，考前翻不动：直接提问，答案定位到页
 - 答疑时间有限：夜间、周末也能得到有材料依据的回答
 - 通用聊天机器人容易编造：CourseTA 的答案必须引用课程材料，材料不足会明确说明
-- （v0.4 规划）学生提交自己的推导，工具逐步验证，指出**第一个出错的地方**
+- 想刷真题但只有 PDF：试卷自动拆成结构化题目，提交作答后逐步批改，指出出错的位置，错题自动收录
 
 ## 架构
 
@@ -37,7 +37,7 @@ flowchart LR
 - [x] 评测集与自动评测脚本（按关键点命中率打分）
 - [x] v0.3 课程资料分区：材料分类浏览、分页阅读器、全文搜索、引用跳转 + 分区导航（资料 / 题库 / 图谱 / 实验台）
 - [x] v0.3.1 解析与排版质量：PyMuPDF 版面级抽取（保留换行与结构）、PPT 层级结构、助教解答 Markdown + KaTeX 公式渲染
-- [ ] v0.4 题库与解答：真题解析为结构化题目（题干 + 解答 + 知识点标签），练习闭环，作答步骤级验证 + 错题本
+- [x] v0.4 题库与解答：真题自动解析为结构化题目（题干 + 参考答案 + 知识点标签）、按材料 / 知识点 / 练习状态筛选、作答步骤级批改（正确 / 部分正确 / 错误）、结合课程材料的 AI 详解、错题本、原题页图回看
 - [ ] v0.5 知识图谱：LLM 全局抽取概念与前置关系，交互式概念网络，节点关联资料页 / 题目 / 实验
 - [ ] v0.6 复习计划：基于题库与图谱的 SM-2 间隔复习与周期计划
 - [ ] v0.7 多课程公开部署、老师端数据面板
@@ -64,12 +64,20 @@ npm run dev
 
 打开 http://localhost:5173 ：新建课程 → 上传课件 → 在「课程资料」分区逐页阅读 / 全文搜索，需要时拉起右栏「问助教」，引用可点击跳页。
 
+切换到「题库与解答」分区：在左侧找到真题材料点「提取」，AI 会把试卷拆成结构化题目（题干、参考答案、知识点标签）；点开题目即可作答、提交批改（分步点评 + 判定）、生成结合课程材料的 AI 详解；判定为「错误 / 部分正确」的题自动进入错题本。批量提取全部真题可用：
+
+```bash
+cd server
+uv run python scripts/extract_problems.py --all        # 或 --material-id 3
+```
+
 ### 配置说明
 
 | 变量 | 说明 |
 | --- | --- |
 | `LLM_API_KEY` / `LLM_BASE_URL` / `LLM_MODEL` | 任意 OpenAI 兼容对话接口（DeepSeek / Qwen / Ollama…） |
 | `EMBEDDING_API_KEY` / `EMBEDDING_BASE_URL` / `EMBEDDING_MODEL` | 向量模型（如 DashScope `text-embedding-v3`、Ollama `bge-m3`）；注意 DeepSeek 暂无 embeddings 接口，需单独配置 |
+| `EXTRACT_MODEL` | 题目抽取专用模型（可选，默认同 `LLM_MODEL`）。抽取是一次性批量任务，建议用更强的模型保证公式与结构质量 |
 
 ### 测试与评测
 
@@ -89,9 +97,10 @@ npm test                                             # 前端测试（仿真引�
 course-ta/
 ├── server/            # FastAPI 后端
 │   ├── app/
-│   │   ├── api/       # 接口：课程、材料上传、资料浏览与全文搜索、流式聊天
-│   │   ├── core/      # LLM 客户端、文档解析、检索、sympy 工具、RAG 管线
-│   │   └── models.py  # Course / Material / Chunk
+│   │   ├── api/       # 接口：课程、材料、资料浏览、流式聊天、题库（抽取 / 批改 / 详解 / 错题本）
+│   │   ├── core/      # LLM 客户端、文档解析、检索、sympy 工具、RAG、题目抽取与批改
+│   │   └── models.py  # Course / Material / Chunk / Problem / Attempt
+│   ├── scripts/       # 重新索引、批量真题抽取 CLI
 │   └── tests/
 ├── web/               # React + Vite + TypeScript 前端（src/sections 资料分区、src/circuit 仿真引擎、src/labs 预置实验）
 ├── evals/             # 评测集与评测脚本
