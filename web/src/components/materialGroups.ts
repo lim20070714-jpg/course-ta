@@ -135,6 +135,55 @@ export function zoneEmptyLabel(kind: string): string {
   return `还没有${zoneLabel(kind)}，点此上传`
 }
 
+/* ===== 分区收纳（折叠 / 展开）===== */
+
+/** 折叠状态：记录被收起的分区类型。 */
+export type CollapsedZones = ReadonlySet<ZoneKind>
+
+export function noZonesCollapsed(): CollapsedZones {
+  return new Set<ZoneKind>()
+}
+
+/** 切换某个分区的折叠状态，返回新集合（不改动入参）。 */
+export function toggleZone(collapsed: CollapsedZones, kind: string): Set<ZoneKind> {
+  const key = normalizeKind(kind)
+  const next = new Set(collapsed)
+  if (next.has(key)) next.delete(key)
+  else next.add(key)
+  return next
+}
+
+export function isZoneCollapsed(collapsed: CollapsedZones, kind: string): boolean {
+  return collapsed.has(normalizeKind(kind))
+}
+
+/** 全部收起：只保留当前有材料的分区，避免收起一堆空分区反而更难找。 */
+export function collapseAllZones(zones: readonly MaterialZone[]): Set<ZoneKind> {
+  return new Set(zones.filter((z) => z.count > 0).map((z) => z.kind))
+}
+
+export function expandAllZones(): Set<ZoneKind> {
+  return new Set<ZoneKind>()
+}
+
+/** 是否全部可见分区都已收起（用于「全部展开 / 全部收起」按钮的文案与禁用态）。 */
+export function allZonesCollapsed(
+  collapsed: CollapsedZones,
+  zones: readonly MaterialZone[],
+): boolean {
+  const nonEmpty = zones.filter((z) => z.count > 0)
+  return nonEmpty.length > 0 && nonEmpty.every((z) => collapsed.has(z.kind))
+}
+
+/**
+ * 折叠后要展示的一行摘要，说明"这里被收起了多少东西"，
+ * 与图谱折叠模块章显示「N 隐藏」保持同一套语言。
+ */
+export function collapsedZoneSummary(zone: MaterialZone): string {
+  if (zone.count === 0) return '空'
+  return `${zone.count} 份已收起`
+}
+
 /* ===== 原页图（PDF 渲染页 / Word 内嵌图 / 图片材料）===== */
 
 /** 文件名是否为 PDF：PDF 的每一页都能渲染成原页图。 */

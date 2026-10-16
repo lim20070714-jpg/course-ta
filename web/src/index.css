@@ -5026,3 +5026,105 @@ html[data-theme='dark'] .tab.active {
 }
 
 
+
+
+/* ==========================================================================
+   v0.12 资料分区收纳：分区可折叠，与知识图谱的模块收纳同一套语言
+   ========================================================================== */
+
+.zone-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 6px 0 2px;
+}
+
+.zone-toolbar-label {
+  font-size: 11px;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+}
+
+.zone-toolbar .mini.ghost {
+  padding: 3px 8px;
+  font-size: 11px;
+}
+
+/* 分区标题变成可点击的折叠开关 */
+.zone-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  padding: 3px 6px 3px 2px;
+  background: none;
+  border: none;
+  border-radius: 7px;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  transition: background-color var(--dur-2) var(--ease-out);
+}
+
+.zone-toggle:hover {
+  background: var(--surface-2);
+}
+
+.zone-toggle:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.zone-caret {
+  display: inline-block;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--muted);
+  transform: rotate(90deg);
+  transition: transform var(--dur-2) var(--ease-out), color var(--dur-2) var(--ease-out);
+}
+
+.material-zone.collapsed .zone-caret {
+  transform: rotate(0deg);
+  color: var(--accent);
+}
+
+.zone-toggle:hover .zone-title {
+  color: var(--accent-strong);
+}
+
+/* 收起状态：标题行保留虚线轮廓与浅底，一眼看出"这里有东西被收起来了" */
+.material-zone.collapsed {
+  border-style: dashed;
+  border-color: var(--accent-border);
+  background: var(--accent-softer);
+  transition: background-color var(--dur-2) var(--ease-out),
+    border-color var(--dur-2) var(--ease-out);
+}
+
+.material-zone.collapsed .zone-head {
+  margin-bottom: 0;
+}
+
+.zone-summary {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+  animation: dshFadeIn var(--dur-2) var(--ease-out) both;
+}
+
+/* 折叠时数量徽章弱化，避免与摘要抢注意力 */
+.material-zone.collapsed .zone-count {
+  opacity: 0.6;
+}
+
+/* 收起/展开时列表的出现更顺（高度不做动画，避免长列表抖动） */
+.material-zone .material-list {
+  animation: dshFadeIn var(--dur-2) var(--ease-out) both;
+}
+
+html[data-theme='dark'] .material-zone.collapsed {
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+}

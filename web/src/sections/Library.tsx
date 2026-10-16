@@ -31,18 +31,37 @@ import {
 import RichText from '../components/RichText'
 import {
   acceptHint,
+  allZonesCollapsed,
+  collapseAllZones,
+  collapsedZoneSummary,
   defaultReaderView,
+  expandAllZones,
   firstImagePage,
   groupMaterials,
   hasAnyPageImage,
   hasPageImage,
+  isZoneCollapsed,
+  toggleZone,
   uploadTargetLabel,
   zoneEmptyLabel,
   zoneUploadActionLabel,
 } from '../components/materialGroups'
-import type { ReaderViewName } from '../components/materialGroups'
+import type { ReaderViewName, ZoneKind } from '../components/materialGroups'
 
 const PAGE_WINDOW = 20
+const COLLAPSE_KEY = 'courseta.zones.collapsed'
+
+/** 读取上次的分区折叠状态；数据不合法时回退为全部展开。 */
+function loadCollapsed(): Set<ZoneKind> {
+  try {
+    const raw = localStorage.getItem(COLLAPSE_KEY)
+    if (!raw) return new Set()
+    const parsed: unknown = JSON.parse(raw)
+    return Array.isArray(parsed) ? new Set(parsed as ZoneKind[]) : new Set()
+  } catch {
+    return new Set()
+  }
+}
 
 type ReaderView = ReaderViewName
 
@@ -72,6 +91,15 @@ export default function Library({
   const [filter, setFilter] = useState('')
   const [notice, setNotice] = useState('')
   const [uploadKind, setUploadKind] = useState('auto')
+  const [collapsed, setCollapsed] = useState<Set<ZoneKind>>(loadCollapsed)
+  // 折叠是一次性读取（懒初始化），之后每次变化写回 localStorage 做持久化
+  useEffect(() => {
+    try {
+      localStorage.setItem(COLLAPSE_KEY, JSON.stringify([...collapsed]))
+    } catch {
+      // 隐私模式等场景下写不了 localStorage：不影响折叠本身
+    }
+  }, [collapsed])
   const fileRef = useRef<HTMLInputElement>(null)
   // 分区上传与通用上传共用同一个隐藏 file input：先把目标类型写进 ref 再打开选择器，
   // 避免依赖 setState 的异步更新而上传到上一次选择的类型。
@@ -450,6 +478,20 @@ export default function Library({
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
         />
+        <div className="zone-toolbar">
+          <span className="zone-toolbar-label">{zones.length} 个分区</span>
+          <button
+            className="mini ghost"
+            onClick={() =>
+              setCollapsed((c) =>
+                allZonesCollapsed(c, zones) ? expandAllZones() : collapseAllZones(zones),
+              )
+            }
+            disabled={zones.every((z) => z.count === 0)}
+          >
+            {allZonesCollapsed(collapsed, zones) ? '全部展开' : '全部收起'}
+          </button>
+        </div>
         {materials.length === 0 && (
           <p className="zone-tip">
             还没有材料。点分区右上角「上传」，文件会直接归入该分区；也可以用下方「自动识别」上传。
@@ -459,52 +501,72 @@ export default function Library({
           <p className="zone-tip">没有匹配的材料。</p>
         )}
         <div className="material-zones">
-          {zones.map((zone) => (
-            <section key={zone.kind} className={`material-zone zone-${zone.kind}`}>
-              <div className="zone-head">
-                <span className="zone-title">{zone.label}</span>
-                <span className="zone-count" title={`${zone.label}共 ${zone.count} 份`}>
-                  {zone.count}
-                </span>
-                <button
-                  className="zone-upload"
-                  title={`${zoneUploadActionLabel(zone.kind)}（${acceptHint(MATERIAL_ACCEPT)}）`}
-                  onClick={() => pickFile(zone.kind)}
-                >
-                  上传
-                </button>
-              </div>
-              {zone.materials.length > 0 ? (
-                <ul className="material-list">
-                  {zone.materials.map((m, index) => (
-                    <li key={m.id} style={{ '--i': index } as CSSProperties}>
-                      <button
-                        className={current?.id === m.id ? 'material-item active' : 'material-item'}
-                        title={m.error || m.filename}
-                        disabled={m.status !== 'ready'}
-                        onClick={() => openMaterial(m)}
-                      >
-                        <span className={`dot ${m.status}`} />
-                        <span className="material-name">{m.filename}</span>
-                        <span className={`kind-badge ${m.kind}`}>{materialKindLabel(m.kind)}</span>
-                        <span className="material-status">
-                          {m.status === 'ready' ? `${m.chunk_count} 块` : statusText(m.status)}
-                        </span>
-                      </button>
-                    </li>
+          {zones.map((zone) => {
+            const collapsedNow = isZoneCollapsed(collapsed, zone.kind)
+            return (
+              <section
+                key={zone.kind}
+                className={`material-zone zone-${zone.kind}${collapsedNow ? ' collapsed' : ''}`}
+              >
+                <div className="zone-head">
+                  <button
+                    className="zone-toggle"
+                    aria-expanded={!collapsedNow}
+                    title={collapsedNow ? `展开「${zone.label}」` : `收起「${zone.label}」`}
+                    onClick={() => setCollapsed((c) => toggleZone(c, zone.kind))}
+                  >
+                    <span className="zone-caret" aria-hidden="true">
+                      ▸
+                    </span>
+                    <span className="zone-title">{zone.label}</span>
+                  </button>
+                  <span className="zone-count" title={`${zone.label}共 ${zone.count} 份`}>
+                    {zone.count}
+                  </span>
+                  {collapsedNow && zone.count > 0 && (
+                    <span className="zone-summary">{collapsedZoneSummary(zone)}</span>
+                  )}
+                  <button
+                    className="zone-upload"
+                    title={`${zoneUploadActionLabel(zone.kind)}（${acceptHint(MATERIAL_ACCEPT)}）`}
+                    onClick={() => pickFile(zone.kind)}
+                  >
+                    上传
+                  </button>
+                </div>
+                {!collapsedNow &&
+                  (zone.materials.length > 0 ? (
+                    <ul className="material-list">
+                      {zone.materials.map((m, index) => (
+                        <li key={m.id} style={{ '--i': index } as CSSProperties}>
+                          <button
+                            className={current?.id === m.id ? 'material-item active' : 'material-item'}
+                            title={m.error || m.filename}
+                            disabled={m.status !== 'ready'}
+                            onClick={() => openMaterial(m)}
+                          >
+                            <span className={`dot ${m.status}`} />
+                            <span className="material-name">{m.filename}</span>
+                            <span className={`kind-badge ${m.kind}`}>{materialKindLabel(m.kind)}</span>
+                            <span className="material-status">
+                              {m.status === 'ready' ? `${m.chunk_count} 块` : statusText(m.status)}
+                            </span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <button
+                      className="zone-empty"
+                      title={acceptHint(MATERIAL_ACCEPT)}
+                      onClick={() => pickFile(zone.kind)}
+                    >
+                      {zoneEmptyLabel(zone.kind)}
+                    </button>
                   ))}
-                </ul>
-              ) : (
-                <button
-                  className="zone-empty"
-                  title={acceptHint(MATERIAL_ACCEPT)}
-                  onClick={() => pickFile(zone.kind)}
-                >
-                  {zoneEmptyLabel(zone.kind)}
-                </button>
-              )}
-            </section>
-          ))}
+              </section>
+            )
+          })}
         </div>
         <div className="upload-panel">
           <div className="upload-target">

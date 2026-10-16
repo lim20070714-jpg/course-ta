@@ -6,14 +6,20 @@ import {
   ZONE_KINDS,
   acceptFormatLabels,
   acceptHint,
+  allZonesCollapsed,
+  collapseAllZones,
+  collapsedZoneSummary,
   countByKind,
   defaultReaderView,
+  expandAllZones,
   firstImagePage,
   groupMaterials,
   hasAnyPageImage,
   hasPageImage,
   isPdfFile,
+  isZoneCollapsed,
   normalizeKind,
+  toggleZone,
   uploadTargetLabel,
   zoneEmptyLabel,
   zoneLabel,
@@ -252,5 +258,63 @@ describe('原页图辅助判断', () => {
     expect(defaultReaderView({ kind: 'slides', filename: '第1讲.pdf' })).toBe('summary')
     expect(defaultReaderView({ kind: 'image', filename: '板书.png', image_pages: [1] })).toBe('image')
     expect(defaultReaderView({ kind: 'image', filename: '板书.png' })).toBe('summary')
+  })
+})
+
+describe('分区收纳（折叠 / 展开）', () => {
+  const zones = groupMaterials([
+    material({ id: 1, kind: 'exam' }),
+    material({ id: 2, kind: 'exam' }),
+    material({ id: 3, kind: 'slides' }),
+  ])
+
+  it('切换分区折叠状态，且不改动入参', () => {
+    const before = new Set<never>()
+    const once = toggleZone(before, 'exam')
+    expect(once.has('exam')).toBe(true)
+    expect(before.size).toBe(0) // 入参未被修改
+    const twice = toggleZone(once, 'exam')
+    expect(twice.has('exam')).toBe(false)
+  })
+
+  it('切换时对未知类型做归一化，避免出现两个不同的键', () => {
+    const set = toggleZone(new Set(), '不存在的类型')
+    expect([...set]).toEqual(['other'])
+  })
+
+  it('isZoneCollapsed 同样归一化', () => {
+    const set = toggleZone(new Set(), '别的')
+    expect(isZoneCollapsed(set, 'other')).toBe(true)
+    expect(isZoneCollapsed(set, 'exam')).toBe(false)
+  })
+
+  it('全部收起只收起有材料的分区', () => {
+    const all = collapseAllZones(zones)
+    expect([...all].sort()).toEqual(['exam', 'slides'])
+    // 空分区不进入折叠集合，避免「收起一堆空分区」反而更难找
+    expect(all.has('handout')).toBe(false)
+  })
+
+  it('全部展开清空折叠集合', () => {
+    expect(expandAllZones().size).toBe(0)
+  })
+
+  it('allZonesCollapsed 只统计有材料的分区', () => {
+    const partially = toggleZone(new Set(), 'exam')
+    expect(allZonesCollapsed(partially, zones)).toBe(false)
+    expect(allZonesCollapsed(collapseAllZones(zones), zones)).toBe(true)
+  })
+
+  it('没有非空分区时不算「全部收起」', () => {
+    const empty = groupMaterials([])
+    expect(allZonesCollapsed(new Set(), empty)).toBe(false)
+    expect(allZonesCollapsed(collapseAllZones(empty), empty)).toBe(false)
+  })
+
+  it('折叠摘要说明被收起了多少份', () => {
+    const exam = zones.find((z) => z.kind === 'exam')!
+    expect(collapsedZoneSummary(exam)).toBe('2 份已收起')
+    const handout = zones.find((z) => z.kind === 'handout')!
+    expect(collapsedZoneSummary(handout)).toBe('空')
   })
 })
