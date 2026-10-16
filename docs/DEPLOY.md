@@ -337,10 +337,48 @@ docker compose up -d
 > - `docker compose up -d` 后 api 容器为 `healthy`、web 容器发布 8080；
 > - 经 nginx 验证：`/` 返回页面、`/api/health` 与 `/api/config` 反代正常、SPA 深链接回退 200、
 >   `/docs` 可用；容器首启自动建库并种入 35 条预置公式；
+> - **命名卷持久化已实测**：`docker compose down`（删容器、保留卷）后 `up -d`，
+>   容器内新建的课程仍在；`down -v` 才会连数据一起清空。
 > - **发现并修复一个真实冲突**：原先 api 服务把 `8000` 发布到宿主机，只要本机正在跑
 >   `uvicorn --port 8000`（开发时的常见状态）就会 `ports are not available` 导致整个编排起不来。
 >   现已默认不发布该端口（web 容器通过 compose 内网 `api:8000` 访问），需要时再手动打开注释。
 > - 国内拉取 Docker Hub 的注意事项见下节。
+
+## 附：Docker 空实例的用途与数据管理
+
+本机当前跑着一个 **Docker 空实例**（`http://localhost:8080`），它**故意不含课程数据**：
+用途是验证"任何人克隆仓库后照着文档能不能把整套服务跑起来"，属于干净的部署回归环境。
+
+它与本机开发实例（`http://localhost:5173`，含真实课程数据）是**两份独立数据**，
+改内容时要明确改的是哪一份，不要混用。常用操作：
+
+```bash
+# 查看状态
+docker compose ps
+
+# 停掉但保留数据（下次 up 数据仍在）
+docker compose down
+
+# 彻底重置为空实例（数据一并删除）
+docker compose down -v && docker compose up -d
+
+# 把本机真实数据灌进容器（可选；拷入命名卷，容器内为 /app/data）
+docker compose stop api
+docker run --rm \
+  -v course-ta-data:/data \
+  -v "D:\projects\course-ta\server\data:/src:ro" \
+  alpine sh -c "cp -r /src/. /data/"
+docker compose start api
+
+# 备份容器内数据到本机
+docker run --rm \
+  -v course-ta-data:/data \
+  -v "D:\Backup\course-ta-docker:/out" \
+  alpine sh -c "cp -r /data/. /out/"
+```
+
+> 注意：容器以 root 运行、卷内文件属 root，宿主机直接改卷目录会比较别扭；
+> 常规做法是上面的 `docker run --rm` 临时容器来导入/导出。
 
 ## 附：国内环境拉取镜像
 
