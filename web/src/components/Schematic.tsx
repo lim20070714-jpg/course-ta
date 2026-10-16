@@ -3,8 +3,22 @@
 const STROKE = 'currentColor'
 const LABEL = 'currentColor'
 
-function Wire({ d }: { d: string }) {
-  return <path d={d} fill="none" stroke={STROKE} strokeWidth={1.6} />
+function Wire({ d, flow = false }: { d: string; flow?: boolean }) {
+  return (
+    <>
+      <path d={d} fill="none" stroke={STROKE} strokeWidth={1.6} />
+      {flow && (
+        <path
+          d={d}
+          fill="none"
+          className="wire-flow"
+          strokeDasharray="5 7"
+          strokeWidth={2.2}
+          style={{ stroke: 'var(--accent)' }}
+        />
+      )}
+    </>
+  )
 }
 
 function NodeDot({ x, y }: { x: number; y: number }) {
@@ -153,8 +167,8 @@ function Svg({ children }: { children: React.ReactNode }) {
 function DividerSchematic() {
   return (
     <Svg>
-      <Wire d="M60 72 L60 34 L160 34 L160 44" />
-      <Wire d="M60 98 L60 146 L160 146 L160 132" />
+      <Wire d="M60 72 L60 34 L160 34 L160 44" flow />
+      <Wire d="M160 132 L160 146 L60 146 L60 98" flow />
       <Wire d="M160 76 L160 100" />
       <Wire d="M160 92 L224 92" />
       <VSource x={60} y={85} label="V₁" />
@@ -171,8 +185,8 @@ function DividerSchematic() {
 function RcSchematic() {
   return (
     <Svg>
-      <Wire d="M60 72 L60 34 L160 34 L160 44" />
-      <Wire d="M60 98 L60 146 L160 146" />
+      <Wire d="M60 72 L60 34 L160 34 L160 44" flow />
+      <Wire d="M160 146 L60 146 L60 98" flow />
       <Wire d="M160 76 L160 98" />
       <Wire d="M160 106 L160 146" />
       <Wire d="M160 92 L224 92" />
@@ -190,8 +204,8 @@ function RcSchematic() {
 function RlSchematic() {
   return (
     <Svg>
-      <Wire d="M60 72 L60 34 L160 34 L160 44" />
-      <Wire d="M60 98 L60 146 L160 146 L160 132" />
+      <Wire d="M60 72 L60 34 L160 34 L160 44" flow />
+      <Wire d="M160 132 L160 146 L60 146 L60 98" flow />
       <Wire d="M160 76 L160 100" />
       <VSource x={60} y={85} label="V₁" />
       <RBoxV x={160} y0={44} y1={76} label="R₁" />
@@ -204,8 +218,8 @@ function RlSchematic() {
 function RlcSchematic() {
   return (
     <Svg>
-      <Wire d="M50 72 L50 40 L240 40" />
-      <Wire d="M50 98 L50 150 L240 150" />
+      <Wire d="M50 72 L50 40 L240 40" flow />
+      <Wire d="M240 150 L50 150 L50 98" flow />
       <Wire d="M240 40 L240 88" />
       <Wire d="M240 96 L240 150" />
       <Wire d="M240 40 L266 40" />
@@ -224,19 +238,19 @@ function RlcSchematic() {
 function SallenSchematic() {
   return (
     <Svg>
-      <Wire d="M56 72 L56 34 L92 34" />
+      <Wire d="M56 72 L56 34 L92 34" flow />
       <Wire d="M56 109 L56 148" />
       <VSource x={56} y={96} label="V₁" />
       <Ground x={56} y={148} />
       <RBoxH x0={92} x1={128} y={34} label="R₁" />
-      <Wire d="M128 34 L160 34" />
+      <Wire d="M128 34 L160 34" flow />
       <NodeDot x={144} y={34} />
       <RBoxH x0={160} x1={196} y={34} label="R₂" />
-      <Wire d="M196 34 L230 34" />
+      <Wire d="M196 34 L230 34" flow />
       <NodeDot x={208} y={34} />
       <Wire d="M144 34 L144 62" />
       <CapV x={144} y={68} label="C₁" side="left" />
-      <Wire d="M144 74 L144 128 L268 128 L268 40" />
+      <Wire d="M144 74 L144 128 L268 128 L268 40" flow />
       <Wire d="M208 34 L208 62" />
       <CapV x={208} y={68} label="C₂" side="right" />
       <Wire d="M208 74 L208 100" />

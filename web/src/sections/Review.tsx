@@ -219,23 +219,31 @@ export default function Review({
                       </span>
                     ))}
                   </div>
-                  <div className="md-body bubble prob-stem">
-                    <RichText text={detail.stem} />
+                  <div className={revealed ? 'flip-box flipped' : 'flip-box'}>
+                    <div className="flip-inner">
+                      <div className="flip-face flip-front">
+                        <div className="md-body bubble prob-stem">
+                          <RichText text={detail.stem} />
+                        </div>
+                      </div>
+                      <div className="flip-face flip-back">
+                        {detail.answer ? (
+                          <div className="md-body bubble review-answer">
+                            <RichText text={detail.answer} />
+                          </div>
+                        ) : (
+                          <div className="review-answer-missing">
+                            材料未附带解答。
+                            <button className="link" onClick={() => onOpenProblem(detail.id)}>
+                              去题库看 AI 详解
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   </div>
                   {revealed ? (
                     <>
-                      {detail.answer ? (
-                        <div className="md-body bubble review-answer">
-                          <RichText text={detail.answer} />
-                        </div>
-                      ) : (
-                        <div className="review-answer-missing">
-                          材料未附带解答。
-                          <button className="link" onClick={() => onOpenProblem(detail.id)}>
-                            去题库看 AI 详解
-                          </button>
-                        </div>
-                      )}
                       {lastResult && <p className="review-result">{lastResult}</p>}
                       <div className="review-grades">
                         {GRADES.map((g) => (
