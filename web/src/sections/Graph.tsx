@@ -2,6 +2,32 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CourseGraph, GraphNode } from '../api'
 import { getCourseGraph, regenerateGraph } from '../api'
 import RichText from '../components/RichText'
+import {
+  DEFAULT_VIEW,
+  MAX_VIEW_W,
+  MIN_VIEW_W,
+  buildModuleTree,
+  centerViewOnMinimap,
+  clampView,
+  collapseAll,
+  dragViewOnMinimap,
+  expandAll,
+  expandModule,
+  filterTree,
+  mapRectToMinimap,
+  minimapLayout,
+  panByWorldDelta,
+  scrollFractions,
+  scrollableAxes,
+  setZoomWidth,
+  toggleModule,
+  visibleNodes,
+  withScrollFraction,
+  zoomedView,
+  type MinimapLayout,
+  type Point,
+  type Rect,
+} from '../components/graphTree'
 import { fitView, layoutMindMap, moduleOrder, type Direction, type View } from '../graph/layout'
 
 const MODULE_COLORS = [
@@ -16,7 +42,12 @@ const MODULE_COLORS = [
 ]
 
 const HORIZONTAL_MIN_W = 1080
-const DEFAULT_VIEW: View = { x: 0, y: 0, w: 900, h: 600 }
+const MINIMAP = { w: 180, h: 126 }
+const PAN_STEP = 0.14
+
+function miniRect(r: Rect): { x: number; y: number; width: number; height: number } {
+  return { x: r.x, y: r.y, width: Math.max(0, r.w), height: Math.max(0, r.h) }
+}
 
 export default function Graph({
   courseId,
@@ -33,12 +64,14 @@ export default function Graph({
   const [query, setQuery] = useState('')
   const [moduleFilter, setModuleFilter] = useState('')
   const [panelOpen, setPanelOpen] = useState(false)
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set<string>())
   const [size, setSize] = useState({ w: 0, h: 0 })
   const [userView, setUserView] = useState<View | null>(null)
   const svgRef = useRef<SVGSVGElement>(null)
   const dirRef = useRef<Direction>('vertical')
   const viewRef = useRef<View>(DEFAULT_VIEW)
   const dragRef = useRef<{ x: number; y: number; view: View; moved: boolean } | null>(null)
+  const miniRef = useRef<{ layout: MinimapLayout; view: View; point: Point } | null>(null)
 
   useEffect(() => {
     if (courseId === null) return
@@ -49,6 +82,7 @@ export default function Graph({
         setNotice('')
         setPanelOpen(false)
         setUserView(null)
+        setCollapsed(new Set<string>())
       })
       .catch((e: Error) => setNotice(e.message))
   }, [courseId])
@@ -64,6 +98,42 @@ export default function Graph({
   }, [courseId, graph?.status])
 
   const ready = graph?.status === 'ready' && graph.nodes.length > 0
+  const modules = useMemo(() => (graph ? moduleOrder(graph.nodes) : []), [graph])
+  const moduleIndex = useMemo(() => new Map(modules.map((m, i) => [m, i])), [modules])
+  const moduleOf = useMemo(
+    () => new Map((graph?.nodes ?? []).map((n) => [n.id, n.module])),
+    [graph],
+  )
+  const direction: Direction = size.w >= HORIZONTAL_MIN_W ? 'horizontal' : 'vertical'
+
+  // 折叠状态直接进入布局：收起的模块只留模块签，图形真的变短
+  const mind = useMemo(
+    () =>
+      ready && graph
+        ? layoutMindMap(graph.nodes, graph.edges, direction, { collapsedModules: collapsed })
+        : null,
+    [ready, graph, direction, collapsed],
+  )
+  const autoView = useMemo(
+    () => (mind && size.w > 0 ? fitView(mind.world, size, direction) : null),
+    [mind, size, direction],
+  )
+  const world = mind?.world
+  const rawView = userView ?? autoView ?? DEFAULT_VIEW
+  const view = useMemo(() => (mind ? clampView(rawView, mind.world) : rawView), [rawView, mind])
+  const frac = useMemo(
+    () => (mind ? scrollFractions(view, mind.world) : { x: 0, y: 0 }),
+    [mind, view],
+  )
+  const scrollable = useMemo(
+    () => (mind ? scrollableAxes(view, mind.world) : { x: false, y: false }),
+    [mind, view],
+  )
+  const mini = useMemo(() => (mind ? minimapLayout(mind.world, view, MINIMAP) : null), [mind, view])
+
+  useEffect(() => {
+    viewRef.current = view
+  })
 
   useEffect(() => {
     if (!ready) return
@@ -74,15 +144,13 @@ export default function Graph({
       const rect = svg.getBoundingClientRect()
       const v = viewRef.current
       const factor = e.deltaY < 0 ? 0.86 : 1.16
-      const w = Math.min(Math.max(v.w * factor, 240), 3200)
-      const h = w * (v.h / v.w)
       const px = rect.width ? (e.clientX - rect.left) / rect.width : 0.5
       const py = rect.height ? (e.clientY - rect.top) / rect.height : 0.5
-      setUserView({ x: v.x + (v.w - w) * px, y: v.y + (v.h - h) * py, w, h })
+      setUserView(zoomedView(v, factor, { x: px, y: py }, world))
     }
     svg.addEventListener('wheel', onWheel, { passive: false })
     return () => svg.removeEventListener('wheel', onWheel)
-  }, [ready])
+  }, [ready, world])
 
   useEffect(() => {
     if (!ready) return
@@ -109,26 +177,6 @@ export default function Graph({
     }
   }, [ready])
 
-  const modules = useMemo(() => (graph ? moduleOrder(graph.nodes) : []), [graph])
-  const moduleIndex = useMemo(() => new Map(modules.map((m, i) => [m, i])), [modules])
-  const moduleOf = useMemo(
-    () => new Map((graph?.nodes ?? []).map((n) => [n.id, n.module])),
-    [graph],
-  )
-  const direction: Direction = size.w >= HORIZONTAL_MIN_W ? 'horizontal' : 'vertical'
-  const mind = useMemo(
-    () => (ready && graph ? layoutMindMap(graph.nodes, graph.edges, direction) : null),
-    [ready, graph, direction],
-  )
-  const autoView = useMemo(
-    () => (mind && size.w > 0 ? fitView(mind.world, size, direction) : null),
-    [mind, size, direction],
-  )
-  const view = userView ?? autoView ?? DEFAULT_VIEW
-  useEffect(() => {
-    viewRef.current = view
-  })
-
   const related = useMemo(() => {
     if (!graph || selected === null) return []
     const byId = new Map(graph.nodes.map((n) => [n.id, n]))
@@ -145,15 +193,15 @@ export default function Graph({
     return rows
   }, [graph, selected])
 
-  const filteredNodes = useMemo(() => {
-    if (!graph) return []
-    const q = query.trim().toLowerCase()
-    return graph.nodes.filter(
-      (n) =>
-        (!moduleFilter || n.module === moduleFilter) &&
-        (!q || n.name.toLowerCase().includes(q) || n.description.toLowerCase().includes(q)),
-    )
-  }, [graph, query, moduleFilter])
+  const tree = useMemo(() => (graph ? buildModuleTree(graph.nodes) : []), [graph])
+  const rows = useMemo(
+    () => filterTree(tree, query, moduleFilter, collapsed),
+    [tree, query, moduleFilter, collapsed],
+  )
+  const visibleCount = useMemo(
+    () => (graph ? visibleNodes(graph.nodes, collapsed).length : 0),
+    [graph, collapsed],
+  )
 
   const selectedNode = graph?.nodes.find((n) => n.id === selected) ?? null
   const colorOf = (module: string) => MODULE_COLORS[(moduleIndex.get(module) ?? 0) % MODULE_COLORS.length]
@@ -165,17 +213,27 @@ export default function Graph({
       setNotice('')
       setSelected(null)
       setPanelOpen(false)
+      setCollapsed(new Set<string>())
       setGraph((g) => (g ? { ...g, status: 'generating', error: '' } : g))
     } catch (e) {
       setNotice((e as Error).message)
     }
   }
 
+  /** 选中概念：若它所在的模块已收起，先自动展开，再显示详情。 */
+  function selectNode(id: number) {
+    const module = moduleOf.get(id)
+    if (module !== undefined) setCollapsed((prev) => expandModule(prev, module))
+    setSelected(id)
+    setPanelOpen(false)
+  }
+
+  function toggleModuleCollapsed(module: string) {
+    setCollapsed((prev) => toggleModule(prev, module))
+  }
+
   function zoomBy(factor: number) {
-    const v = viewRef.current
-    const w = Math.min(Math.max(v.w * factor, 240), 3200)
-    const h = w * (v.h / v.w)
-    setUserView({ x: v.x + (v.w - w) / 2, y: v.y + (v.h - h) / 2, w, h })
+    setUserView((prev) => zoomedView(prev ?? view, factor, { x: 0.5, y: 0.5 }, world))
   }
 
   function onPointerDown(e: React.PointerEvent<SVGSVGElement>) {
@@ -192,12 +250,11 @@ export default function Graph({
     const dx = ((e.clientX - drag.x) / Math.max(1, rect.width)) * drag.view.w
     const dy = ((e.clientY - drag.y) / Math.max(1, rect.height)) * drag.view.h
     if (Math.abs(e.clientX - drag.x) + Math.abs(e.clientY - drag.y) > 3) drag.moved = true
-    setUserView({
-      x: drag.view.x - dx,
-      y: drag.view.y - dy,
-      w: drag.view.w,
-      h: drag.view.h,
-    })
+    setUserView(
+      world
+        ? panByWorldDelta(drag.view, world, -dx, -dy)
+        : { x: drag.view.x - dx, y: drag.view.y - dy, w: drag.view.w, h: drag.view.h },
+    )
   }
 
   function onPointerUp() {
@@ -209,9 +266,68 @@ export default function Graph({
     }
   }
 
+  function onKeyDown(e: React.KeyboardEvent<SVGSVGElement>) {
+    const v = viewRef.current
+    const box = world
+    if (!box) return
+    let next: View | null = null
+    if (e.key === 'ArrowLeft') next = panByWorldDelta(v, box, -v.w * PAN_STEP, 0)
+    else if (e.key === 'ArrowRight') next = panByWorldDelta(v, box, v.w * PAN_STEP, 0)
+    else if (e.key === 'ArrowUp') next = panByWorldDelta(v, box, 0, -v.h * PAN_STEP)
+    else if (e.key === 'ArrowDown') next = panByWorldDelta(v, box, 0, v.h * PAN_STEP)
+    else if (e.key === '+' || e.key === '=') next = zoomedView(v, 0.86, { x: 0.5, y: 0.5 }, box)
+    else if (e.key === '-' || e.key === '_') next = zoomedView(v, 1.16, { x: 0.5, y: 0.5 }, box)
+    else if (e.key === 'Home') {
+      e.preventDefault()
+      setUserView(null)
+      return
+    } else return
+    e.preventDefault()
+    if (next) setUserView(next)
+  }
+
+  function miniPoint(e: React.PointerEvent<SVGSVGElement>): Point {
+    const rect = e.currentTarget.getBoundingClientRect()
+    const sx = rect.width > 0 ? MINIMAP.w / rect.width : 1
+    const sy = rect.height > 0 ? MINIMAP.h / rect.height : 1
+    return { x: (e.clientX - rect.left) * sx, y: (e.clientY - rect.top) * sy }
+  }
+
+  function onMiniPointerDown(e: React.PointerEvent<SVGSVGElement>) {
+    if (!mini || !world) return
+    e.preventDefault()
+    e.stopPropagation()
+    const point = miniPoint(e)
+    const inside =
+      point.x >= mini.viewRect.x - 2 &&
+      point.x <= mini.viewRect.x + mini.viewRect.w + 2 &&
+      point.y >= mini.viewRect.y - 2 &&
+      point.y <= mini.viewRect.y + mini.viewRect.h + 2
+    // 点在视窗框内 → 相对拖动；点在框外 → 先把视窗中心移过去，再继续拖动
+    const start = inside ? view : centerViewOnMinimap(mini, world, view, point)
+    if (!inside) setUserView(start)
+    e.currentTarget.setPointerCapture(e.pointerId)
+    miniRef.current = { layout: mini, view: start, point }
+  }
+
+  function onMiniPointerMove(e: React.PointerEvent<SVGSVGElement>) {
+    const drag = miniRef.current
+    if (!drag || !world) return
+    setUserView(dragViewOnMinimap(drag.layout, world, drag.view, drag.point, miniPoint(e)))
+  }
+
+  function onMiniPointerUp() {
+    miniRef.current = null
+  }
+
   if (courseId === null) {
     return <div className="lib-empty">还没有课程。请先在右上角新建一门课程，再上传课件生成知识图谱。</div>
   }
+
+  const zoomValue = Math.round(Math.min(MAX_VIEW_W, Math.max(MIN_VIEW_W, view.w)))
+  const zoomMin = Math.min(MIN_VIEW_W, Math.floor(view.w))
+  const zoomMax = Math.max(MAX_VIEW_W, Math.ceil(view.w))
+  const searching = query.trim() !== ''
 
   return (
     <div className="lib-page graph-page">
@@ -255,23 +371,69 @@ export default function Graph({
                 </button>
               ))}
             </div>
-            <ul className="graph-concept-list">
-              {filteredNodes.map((n) => (
-                <li key={n.id}>
-                  <button
-                    className={selected === n.id ? 'graph-concept active' : 'graph-concept'}
-                    onClick={() => {
-                      setSelected(n.id)
-                      setPanelOpen(false)
-                    }}
-                  >
-                    <span className="legend-dot" style={{ background: colorOf(n.module) }} />
-                    <span className="graph-concept-name">{n.name}</span>
-                    {n.problems.length > 0 && <span className="graph-concept-count">{n.problems.length} 题</span>}
-                  </button>
+            <div className="graph-tree-tools">
+              <span className="graph-tree-summary">
+                层级目录 · 显示 {visibleCount}/{graph.nodes.length} 个概念
+              </span>
+              <button
+                className="link"
+                onClick={() => setCollapsed(expandAll())}
+                disabled={collapsed.size === 0}
+              >
+                全部展开
+              </button>
+              <button
+                className="link"
+                onClick={() => setCollapsed(collapseAll(modules))}
+                disabled={collapsed.size === modules.length}
+              >
+                全部收起
+              </button>
+            </div>
+            <ul className="graph-tree">
+              {rows.map((row) => (
+                <li key={row.module} className={row.open ? 'graph-tree-module open' : 'graph-tree-module'}>
+                  <div className="graph-tree-head">
+                    <button
+                      className="graph-tree-toggle"
+                      onClick={() => toggleModuleCollapsed(row.module)}
+                      title={row.open ? `收起「${row.module}」` : `展开「${row.module}」`}
+                      aria-expanded={row.open}
+                    >
+                      {row.open ? '▾' : '▸'}
+                    </button>
+                    <button
+                      className={moduleFilter === row.module ? 'graph-tree-name active' : 'graph-tree-name'}
+                      onClick={() => setModuleFilter(moduleFilter === row.module ? '' : row.module)}
+                      title={moduleFilter === row.module ? '取消只看该模块' : '只看该模块'}
+                    >
+                      <span className="legend-dot" style={{ background: colorOf(row.module) }} />
+                      <span className="graph-tree-label">{row.module}</span>
+                    </button>
+                    <span className="graph-tree-count">
+                      {searching ? `${row.matches}/${row.count}` : row.count}
+                    </span>
+                  </div>
+                  {row.open && (
+                    <ul className="graph-tree-concepts">
+                      {row.concepts.map((c) => (
+                        <li key={c.id}>
+                          <button
+                            className={selected === c.id ? 'graph-concept active' : 'graph-concept'}
+                            onClick={() => selectNode(c.id)}
+                          >
+                            <span className="graph-concept-name">{c.name}</span>
+                            {c.problemCount > 0 && (
+                              <span className="graph-concept-count">{c.problemCount} 题</span>
+                            )}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </li>
               ))}
-              {filteredNodes.length === 0 && (
+              {rows.length === 0 && (
                 <li className="empty">
                   {moduleFilter ? '当前模块内没有匹配的概念，可切到「全部」查看' : '没有匹配的概念'}
                 </li>
@@ -283,7 +445,7 @@ export default function Graph({
 
       <main className="graph-main">
         {notice && <div className="lib-notice">{notice}</div>}
-        {!ready ? (
+        {!ready || !mind ? (
           <div className="lib-welcome">
             {graph?.status === 'generating' ? (
               <>
@@ -333,7 +495,76 @@ export default function Graph({
               <button className="mini ghost" onClick={() => setUserView(null)}>
                 重置
               </button>
-              <span className="graph-hint">滚轮缩放 · 拖拽平移 · 点击概念看详情</span>
+              <button
+                className="mini ghost"
+                onClick={() => setCollapsed(expandAll())}
+                disabled={collapsed.size === 0}
+              >
+                全部展开
+              </button>
+              <button
+                className="mini ghost"
+                onClick={() => setCollapsed(collapseAll(modules))}
+                disabled={collapsed.size === modules.length}
+              >
+                全部收起
+              </button>
+              <span className="graph-hint">
+                滚轮缩放 · 拖拽或方向键平移 · 点击模块签收起/展开 · 缩略图可拖动
+              </span>
+            </div>
+            <div className="graph-nav">
+              <label className="graph-nav-item">
+                <span className="graph-nav-label">缩放</span>
+                <input
+                  className="graph-slider"
+                  type="range"
+                  min={zoomMin}
+                  max={zoomMax}
+                  step={20}
+                  value={zoomValue}
+                  onChange={(e) =>
+                    setUserView((prev) => setZoomWidth(prev ?? view, Number(e.target.value), world))
+                  }
+                  aria-label="缩放"
+                />
+              </label>
+              <label className="graph-nav-item">
+                <span className="graph-nav-label">横向</span>
+                <input
+                  className="graph-slider"
+                  type="range"
+                  min={0}
+                  max={1000}
+                  step={1}
+                  value={Math.round(frac.x * 1000)}
+                  disabled={!scrollable.x}
+                  onChange={(e) =>
+                    setUserView((prev) =>
+                      withScrollFraction(prev ?? view, mind.world, 'x', Number(e.target.value) / 1000),
+                    )
+                  }
+                  aria-label="横向位置"
+                />
+              </label>
+              <label className="graph-nav-item">
+                <span className="graph-nav-label">纵向</span>
+                <input
+                  className="graph-slider"
+                  type="range"
+                  min={0}
+                  max={1000}
+                  step={1}
+                  value={Math.round(frac.y * 1000)}
+                  disabled={!scrollable.y}
+                  onChange={(e) =>
+                    setUserView((prev) =>
+                      withScrollFraction(prev ?? view, mind.world, 'y', Number(e.target.value) / 1000),
+                    )
+                  }
+                  aria-label="纵向位置"
+                />
+              </label>
             </div>
             <svg
               ref={svgRef}
@@ -342,6 +573,10 @@ export default function Graph({
               onPointerDown={onPointerDown}
               onPointerMove={onPointerMove}
               onPointerUp={onPointerUp}
+              onKeyDown={onKeyDown}
+              tabIndex={0}
+              role="application"
+              aria-label="知识图谱画布：方向键平移，加减号缩放，Home 回到自适应视窗"
             >
               <defs>
                 <marker
@@ -368,7 +603,7 @@ export default function Graph({
                 </marker>
               </defs>
               <g className="graph-edges">
-                {mind?.edges.map((edge) => {
+                {mind.edges.map((edge) => {
                   const active = selected !== null && (edge.source === selected || edge.target === selected)
                   const dimmed =
                     !active &&
@@ -398,19 +633,23 @@ export default function Graph({
                 })}
               </g>
               <g className="graph-chips">
-                {mind?.chips.map((chip) => {
+                {mind.chips.map((chip) => {
                   const dimmed = moduleFilter !== '' && chip.module !== moduleFilter
+                  const isCollapsed = chip.collapsed === true
                   return (
                     <g
                       key={chip.module}
-                      className="graph-chip"
+                      className={isCollapsed ? 'graph-chip collapsed' : 'graph-chip'}
                       opacity={dimmed ? 0.25 : 1}
+                      style={{ cursor: 'pointer' }}
                       onPointerDown={(e) => e.stopPropagation()}
-                      onClick={() =>
-                        setModuleFilter(moduleFilter === chip.module ? '' : chip.module)
-                      }
+                      onClick={() => toggleModuleCollapsed(chip.module)}
                     >
-                      <title>{`${chip.module}：${chip.count} 个概念（点击筛选）`}</title>
+                      <title>
+                        {isCollapsed
+                          ? `${chip.module}：已收起 ${chip.count} 个概念（点击展开）`
+                          : `${chip.module}：${chip.count} 个概念（点击收起）`}
+                      </title>
                       <rect
                         x={chip.x}
                         y={chip.y}
@@ -425,24 +664,41 @@ export default function Graph({
                         dominantBaseline="central"
                         className="graph-chip-label"
                       >
-                        {chip.module.length > 8 ? `${chip.module.slice(0, 8)}…` : chip.module}
+                        {isCollapsed
+                          ? `${chip.module} · ${chip.count} 隐藏`
+                          : chip.module.length > 8
+                            ? `${chip.module.slice(0, 8)}…`
+                            : chip.module}
                       </text>
-                      <text
-                        x={chip.x + chip.w - 10}
-                        y={chip.y + chip.h / 2}
-                        textAnchor="end"
-                        dominantBaseline="central"
-                        className="graph-chip-count"
-                      >
-                        {chip.count}
-                      </text>
+                      {!isCollapsed && (
+                        <text
+                          x={chip.x + chip.w - 10}
+                          y={chip.y + chip.h / 2}
+                          textAnchor="end"
+                          dominantBaseline="central"
+                          className="graph-chip-count"
+                        >
+                          {chip.count}
+                        </text>
+                      )}
+                      {isCollapsed && (
+                        <text
+                          x={chip.x + chip.w - 8}
+                          y={chip.y + chip.h / 2}
+                          textAnchor="end"
+                          dominantBaseline="central"
+                          className="graph-chip-count"
+                        >
+                          ▸
+                        </text>
+                      )}
                     </g>
                   )
                 })}
               </g>
               <g className="graph-pills">
                 {graph.nodes.map((node) => {
-                  const p = mind?.pills.get(node.id)
+                  const p = mind.pills.get(node.id)
                   if (!p) return null
                   const active = selected === node.id
                   const dimmed = moduleFilter !== '' && node.module !== moduleFilter
@@ -454,7 +710,7 @@ export default function Graph({
                       opacity={dimmed ? 0.22 : 1}
                       style={{ cursor: 'pointer' }}
                       onPointerDown={(e) => e.stopPropagation()}
-                      onClick={() => setSelected(node.id)}
+                      onClick={() => selectNode(node.id)}
                     >
                       <title>{`${node.name}（${node.module}）`}</title>
                       <rect
@@ -488,6 +744,40 @@ export default function Graph({
                 })}
               </g>
             </svg>
+            {mini && (
+              <div className="graph-minimap">
+                <svg
+                  className="graph-minimap-svg"
+                  viewBox={`0 0 ${MINIMAP.w} ${MINIMAP.h}`}
+                  preserveAspectRatio="none"
+                  onPointerDown={onMiniPointerDown}
+                  onPointerMove={onMiniPointerMove}
+                  onPointerUp={onMiniPointerUp}
+                  onPointerLeave={onMiniPointerUp}
+                >
+                  <rect
+                    className="graph-minimap-world"
+                    {...miniRect(mini.worldRect)}
+                    rx={6}
+                  />
+                  {mind.chips.map((chip) => (
+                    <rect
+                      key={`chip-${chip.module}`}
+                      className="graph-minimap-chip"
+                      fill={colorOf(chip.module)}
+                      {...miniRect(
+                        mapRectToMinimap(mini, { x: chip.x, y: chip.y, w: chip.w, h: chip.h }),
+                      )}
+                    />
+                  ))}
+                  {[...mind.pills].map(([id, p]) => (
+                    <rect key={id} className="graph-minimap-pill" {...miniRect(mapRectToMinimap(mini, p))} />
+                  ))}
+                  <rect className="graph-minimap-view" {...miniRect(mini.viewRect)} rx={3} />
+                </svg>
+                <span className="graph-minimap-label">缩略图 · 可拖动</span>
+              </div>
+            )}
           </div>
         )}
       </main>
@@ -542,7 +832,7 @@ export default function Graph({
                 <ul className="graph-related">
                   {related.map(({ node, relation, direction }) => (
                     <li key={node.id}>
-                      <button className="link" onClick={() => setSelected(node.id)}>
+                      <button className="link" onClick={() => selectNode(node.id)}>
                         {node.name}
                       </button>
                       <span className="graph-rel-tag">
@@ -570,6 +860,7 @@ export default function Graph({
             )}
             <p className="graph-tip">
               共 {graph.nodes.length} 个概念、{graph.edges.length} 条关系；点击画布中的概念查看解释、出处页与相关题目。
+              模块签可收起/展开，左侧目录与缩略图都能快速定位。
             </p>
           </div>
         ) : null}

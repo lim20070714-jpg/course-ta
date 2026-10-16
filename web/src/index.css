@@ -3279,3 +3279,372 @@ button.sprint-tag.active .sprint-tag-rank {
     width: 100%;
   }
 }
+
+/* ===== 课程资料分区（按材料类型分区 + 分区上传）===== */
+
+.material-zones {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.material-zone {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-left: 8px;
+  border-left: 2px solid var(--border);
+}
+
+.material-zone.zone-exam {
+  border-left-color: var(--warn-border);
+}
+
+.material-zone.zone-slides {
+  border-left-color: var(--accent-border);
+}
+
+.material-zone.zone-image {
+  border-left-color: var(--accent-strong);
+}
+
+.material-zone.zone-textbook {
+  border-left-color: var(--ok);
+}
+
+.material-zone.zone-handout {
+  border-left-color: var(--accent-ring);
+}
+
+.zone-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.zone-title {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--text-2);
+}
+
+.zone-count {
+  font-size: 11px;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+
+button.zone-upload {
+  margin-left: auto;
+  padding: 2px 8px;
+  font-size: 11px;
+  line-height: 1.5;
+  border-radius: 6px;
+  background: none;
+  color: var(--accent);
+  border: 1px solid var(--accent-border);
+}
+
+button.zone-upload:hover:not(:disabled) {
+  background: var(--accent-soft);
+}
+
+button.zone-empty {
+  width: 100%;
+  text-align: left;
+  padding: 6px 8px;
+  font-size: 12px;
+  background: none;
+  color: var(--muted);
+  border: 1px dashed var(--border-strong);
+  border-radius: 8px;
+}
+
+button.zone-empty:hover:not(:disabled) {
+  background: var(--surface-2);
+  color: var(--text-2);
+}
+
+.zone-tip {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.upload-panel {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.upload-target {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.upload-target strong {
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.upload-hint {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+.upload-panel .upload {
+  margin-top: 0;
+}
+
+/* ---------- 知识图谱：层级导航（折叠目录 / 滑块 / 缩略图） ---------- */
+
+.graph-toolbar {
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+
+.graph-nav {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  padding: 6px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-3);
+  flex-shrink: 0;
+}
+
+.graph-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 150px;
+}
+
+.graph-nav-label {
+  flex-shrink: 0;
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
+.graph-slider {
+  flex: 1;
+  min-width: 90px;
+  height: 18px;
+  background: none;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.graph-slider:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+.graph-slider:focus-visible {
+  outline: 2px solid var(--accent-ring);
+  outline-offset: 1px;
+  border-radius: 4px;
+}
+
+.graph-svg:focus {
+  outline: none;
+}
+
+.graph-svg:focus-visible {
+  outline: 2px solid var(--accent-ring);
+  outline-offset: -3px;
+}
+
+.graph-chip.collapsed rect {
+  opacity: 0.55;
+}
+
+.graph-chip.collapsed:hover rect {
+  opacity: 0.78;
+}
+
+.graph-tree-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 2px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.graph-tree-summary {
+  flex: 1;
+  min-width: 0;
+}
+
+.graph-tree {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.graph-tree-module {
+  display: flex;
+  flex-direction: column;
+}
+
+.graph-tree-head {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.graph-tree-toggle {
+  flex-shrink: 0;
+  width: 20px;
+  height: 24px;
+  padding: 0;
+  line-height: 1;
+  font-size: 11px;
+  background: none;
+  color: var(--muted);
+  border-radius: 6px;
+}
+
+.graph-tree-toggle:hover:not(:disabled) {
+  background: var(--surface-2);
+  color: var(--text-2);
+}
+
+.graph-tree-name {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  padding: 5px 6px;
+  border-radius: 8px;
+}
+
+.graph-tree-name:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+
+.graph-tree-name.active {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.graph-tree-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.graph-tree-count {
+  flex-shrink: 0;
+  padding: 1px 7px;
+  font-size: 11px;
+  color: var(--muted);
+  background: var(--surface-2);
+  border-radius: 6px;
+}
+
+.graph-tree-concepts {
+  list-style: none;
+  margin: 1px 0 4px 10px;
+  padding: 0 0 0 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  border-left: 1px solid var(--border);
+}
+
+.graph-minimap {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  width: 180px;
+  height: 126px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: 0 6px 18px var(--shadow-c);
+  overflow: hidden;
+  z-index: 12;
+}
+
+.graph-minimap-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
+  touch-action: none;
+}
+
+.graph-minimap-world {
+  fill: var(--surface-2);
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+.graph-minimap-chip {
+  opacity: 0.5;
+}
+
+.graph-minimap-pill {
+  fill: var(--border-strong);
+}
+
+.graph-minimap-view {
+  fill: var(--accent-soft);
+  fill-opacity: 0.35;
+  stroke: var(--accent);
+  stroke-width: 1.2;
+}
+
+.graph-minimap-label {
+  position: absolute;
+  top: 4px;
+  left: 7px;
+  font-size: 10px;
+  color: var(--muted);
+  pointer-events: none;
+  user-select: none;
+}
+
+@media (max-width: 900px) {
+  .graph-nav {
+    padding: 6px 10px;
+  }
+
+  .graph-nav-item {
+    min-width: 108px;
+  }
+}
+
+@media (max-width: 720px) {
+  .graph-minimap {
+    display: none;
+  }
+}

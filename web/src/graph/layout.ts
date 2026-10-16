@@ -26,6 +26,8 @@ export interface ChipBox {
   y: number
   w: number
   h: number
+  /** 该模块已折叠：只显示模块签与隐藏数量，不排布其概念。 */
+  collapsed?: boolean
 }
 
 export interface EdgePath {
@@ -73,11 +75,21 @@ export function moduleOrder(nodes: GraphNode[]): string[] {
 
 /** 估算胶囊宽度：CJK/全角字符按全宽计，其余按半宽计。 */
 export function estimatePillWidth(name: string): number {
+  return Math.min(250, Math.max(64, Math.round(textWidth(name)) + 24))
+}
+
+function textWidth(text: string): number {
   let w = 0
-  for (const ch of name) {
+  for (const ch of text) {
     w += /[\u2e80-\u9fff\uac00-\ud7af\uff01-\uff60]/.test(ch) ? 12.8 : 7.2
   }
-  return Math.min(250, Math.max(64, Math.round(w) + 24))
+  return w
+}
+
+/** 模块签宽度：折叠时文字为「模块名 · N 隐藏」，比默认签更宽。 */
+export function estimateChipWidth(module: string, hidden = 0): number {
+  const label = hidden > 0 ? `${module} · ${hidden} 隐藏` : module
+  return Math.min(320, Math.max(CHIP_W, Math.round(textWidth(label)) + 46))
 }
 
 function groupByModule(nodes: GraphNode[]): Map<string, GraphNode[]> {
@@ -100,18 +112,31 @@ interface EdgeInput {
   b: PillBox
 }
 
+export interface LayoutOptions {
+  /** 已折叠的模块名：不排布其概念，只留模块签与隐藏计数。 */
+  collapsedModules?: ReadonlySet<string>
+}
+
+const EMPTY_COLLAPSED: ReadonlySet<string> = new Set<string>()
+
 /** 确定性思维导图布局：模块为分支，概念胶囊按学习顺序串联，前置箭头、相关虚线。 */
 export function layoutMindMap(
   nodes: GraphNode[],
   edges: GraphEdge[],
   direction: Direction,
+  options?: LayoutOptions,
 ): MindMap {
+  const collapsed = options?.collapsedModules ?? EMPTY_COLLAPSED
   return direction === 'horizontal'
-    ? layoutHorizontal(nodes, edges)
-    : layoutVertical(nodes, edges)
+    ? layoutHorizontal(nodes, edges, collapsed)
+    : layoutVertical(nodes, edges, collapsed)
 }
 
-function layoutHorizontal(nodes: GraphNode[], edges: GraphEdge[]): MindMap {
+function layoutHorizontal(
+  nodes: GraphNode[],
+  edges: GraphEdge[],
+  collapsed: ReadonlySet<string>,
+): MindMap {
   const modules = moduleOrder(nodes)
   const byModule = groupByModule(nodes)
   const pills = new Map<number, PillBox>()
@@ -122,6 +147,13 @@ function layoutHorizontal(nodes: GraphNode[], edges: GraphEdge[]): MindMap {
   modules.forEach((module, row) => {
     const list = byModule.get(module) ?? []
     const cy = PAD + row * H_PITCH + PILL_H / 2
+    if (collapsed.has(module)) {
+      // 折叠模块保留一整行，只画模块签：图形真的变短，且还能点开
+      const w = estimateChipWidth(module, list.length)
+      chips.push({ module, count: list.length, x: PAD, y: cy - CHIP_H / 2, w, h: CHIP_H, collapsed: true })
+      maxRight = Math.max(maxRight, PAD + w)
+      return
+    }
     chips.push({ module, count: list.length, x: PAD, y: cy - CHIP_H / 2, w: CHIP_W, h: CHIP_H })
     let x = H_PILL_X
     list.forEach((node, idx) => {
@@ -185,7 +217,11 @@ function layoutHorizontal(nodes: GraphNode[], edges: GraphEdge[]): MindMap {
   return { world, pills, chips, edges: out }
 }
 
-function layoutVertical(nodes: GraphNode[], edges: GraphEdge[]): MindMap {
+function layoutVertical(
+  nodes: GraphNode[],
+  edges: GraphEdge[],
+  collapsed: ReadonlySet<string>,
+): MindMap {
   const modules = moduleOrder(nodes)
   const byModule = groupByModule(nodes)
   const pills = new Map<number, PillBox>()
@@ -195,8 +231,17 @@ function layoutVertical(nodes: GraphNode[], edges: GraphEdge[]): MindMap {
   let y = PAD
   let contentBottom = PAD + PILL_H
   let maxPillW = 0
+  let chipRight = V_CHIP_X + CHIP_W
   for (const module of modules) {
     const list = byModule.get(module) ?? []
+    if (collapsed.has(module)) {
+      const w = estimateChipWidth(module, list.length)
+      chips.push({ module, count: list.length, x: V_CHIP_X, y, w, h: CHIP_H, collapsed: true })
+      chipRight = Math.max(chipRight, V_CHIP_X + w)
+      contentBottom = Math.max(contentBottom, y + CHIP_H)
+      y += CHIP_H + V_MODULE_GAP
+      continue
+    }
     chips.push({ module, count: list.length, x: V_CHIP_X, y, w: CHIP_W, h: CHIP_H })
     y += CHIP_H + 14
     list.forEach((node, idx) => {
@@ -214,7 +259,7 @@ function layoutVertical(nodes: GraphNode[], edges: GraphEdge[]): MindMap {
   let laneBase = 0
   let relatedLane = 0
   let prereqLane = 0
-  let worldRight = Math.max(V_PILL_X + maxPillW, V_CHIP_X + CHIP_W)
+  let worldRight = Math.max(V_PILL_X + maxPillW, chipRight)
   const laneEdges: EdgeInput[] = []
   const directEdges: EdgeInput[] = []
   const pruneLane = { related: false, prereq: false }

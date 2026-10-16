@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { GraphEdge, GraphNode } from '../api'
-import { estimatePillWidth, fitView, layoutMindMap, moduleOrder } from './layout'
+import { estimatePillWidth, estimateChipWidth, fitView, layoutMindMap, moduleOrder } from './layout'
 
 function node(id: number, name: string, module: string, order: number): GraphNode {
   return {
@@ -231,5 +231,99 @@ describe('fitView', () => {
     expect(view.h).toBe(1200)
     expect(view.x).toBeCloseTo(-500)
     expect(view.y).toBeCloseTo(-400)
+  })
+})
+
+describe('estimateChipWidth', () => {
+  it('短模块名用默认签宽', () => {
+    expect(estimateChipWidth('电阻')).toBe(150)
+    expect(estimateChipWidth('电阻', 3)).toBe(150)
+  })
+
+  it('折叠时按「模块名 · N 隐藏」加宽', () => {
+    expect(estimateChipWidth('电路基础', 12)).toBeGreaterThan(estimateChipWidth('电路基础', 0))
+    expect(estimateChipWidth('MOSFET 模块', 12)).toBeGreaterThan(150)
+  })
+
+  it('超长模块名封顶', () => {
+    expect(estimateChipWidth('一二三四五六七八九十一二三四五六七八九十', 99)).toBe(320)
+  })
+})
+
+describe('layoutMindMap 折叠模块', () => {
+  const collapsedA = new Set(['电路基础'])
+  const collapsedB = new Set(['动态电路'])
+  const allCollapsed = new Set(['电路基础', '动态电路'])
+  const hA = layoutMindMap(NODES, EDGES, 'horizontal', { collapsedModules: collapsedA })
+  const vA = layoutMindMap(NODES, EDGES, 'vertical', { collapsedModules: collapsedA })
+  const hB = layoutMindMap(NODES, EDGES, 'horizontal', { collapsedModules: collapsedB })
+  const hFull = layoutMindMap(NODES, EDGES, 'horizontal')
+  const vFull = layoutMindMap(NODES, EDGES, 'vertical')
+
+  function snapshot(map: ReturnType<typeof layoutMindMap>) {
+    return JSON.stringify({
+      world: map.world,
+      pills: [...map.pills],
+      chips: map.chips,
+      edges: map.edges,
+    })
+  }
+
+  it('向后兼容：不传参数与传空集合结果完全一致', () => {
+    const empty = layoutMindMap(NODES, EDGES, 'horizontal', { collapsedModules: new Set() })
+    expect(snapshot(empty)).toBe(snapshot(hFull))
+  })
+
+  it('折叠模块只留模块签，概念不再排布', () => {
+    expect([...hA.pills.keys()]).toEqual([4, 5, 6])
+    expect(hA.chips.map((c) => c.module)).toEqual(['电路基础', '动态电路'])
+    expect(hA.chips[0].collapsed).toBe(true)
+    expect(hA.chips[0].count).toBe(3)
+    expect(hA.chips[1].collapsed).toBeUndefined()
+    // 折叠模块仍在原来的学习顺序位置（行号/签位置不变）
+    expect(hA.chips.map((c) => c.y)).toEqual(hFull.chips.map((c) => c.y))
+  })
+
+  it('折叠后图形确实变短，未折叠模块的胶囊位置不变', () => {
+    expect(vA.world.h).toBeLessThan(vFull.world.h)
+    expect(hB.world.w).toBeLessThan(hFull.world.w)
+    expect(at(hA.pills, 4)).toEqual(at(hFull.pills, 4))
+    // 纵向：列不变，但后面的模块整体上移（这正是「收起后变短」）
+    expect(at(vA.pills, 4).x).toBe(at(vFull.pills, 4).x)
+    expect(at(vA.pills, 4).y).toBeLessThan(at(vFull.pills, 4).y)
+    expect(vA.chips[1].y).toBeLessThan(vFull.chips[1].y)
+  })
+
+  it('指向隐藏概念的边全部被丢弃，不悬挂', () => {
+    for (const map of [hA, vA]) {
+      expect(map.edges.every((e) => map.pills.has(e.source) && map.pills.has(e.target))).toBe(true)
+    }
+    expect(vA.edges.map((e) => [e.source, e.target])).toEqual([
+      [4, 5],
+      [5, 6],
+    ])
+    expect(hA.edges.length).toBeLessThan(hFull.edges.length)
+  })
+
+  it('全部折叠时没有胶囊，但每个模块仍有可点击的签', () => {
+    for (const direction of ['horizontal', 'vertical'] as const) {
+      const map = layoutMindMap(NODES, EDGES, direction, { collapsedModules: allCollapsed })
+      expect(map.pills.size).toBe(0)
+      expect(map.edges).toEqual([])
+      expect(map.chips).toHaveLength(2)
+      expect(map.chips.every((c) => c.collapsed === true)).toBe(true)
+      expect(map.chips.map((c) => c.count)).toEqual([3, 3])
+      expect(map.world.w).toBeGreaterThan(0)
+      expect(map.world.h).toBeGreaterThan(0)
+    }
+  })
+
+  it('折叠模块的签宽按隐藏数量加宽，且仍在画布内', () => {
+    const chip = hA.chips[0]
+    expect(chip.w).toBeGreaterThan(150)
+    expect(chip.x + chip.w).toBeLessThanOrEqual(hA.world.w)
+    for (const c of vA.chips) {
+      expect(c.x + c.w).toBeLessThanOrEqual(vA.world.w)
+    }
   })
 })

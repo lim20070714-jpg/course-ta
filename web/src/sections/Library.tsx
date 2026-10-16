@@ -11,6 +11,8 @@ import type {
 } from '../api'
 import {
   KIND_LABELS,
+  MATERIAL_ACCEPT,
+  MATERIAL_FORMAT_HINT,
   extractProblems,
   getMaterialSummary,
   listMaterials,
@@ -26,10 +28,22 @@ import {
   uploadMaterial,
 } from '../api'
 import RichText from '../components/RichText'
+import {
+  acceptHint,
+  defaultReaderView,
+  firstImagePage,
+  groupMaterials,
+  hasAnyPageImage,
+  hasPageImage,
+  uploadTargetLabel,
+  zoneEmptyLabel,
+  zoneUploadActionLabel,
+} from '../components/materialGroups'
+import type { ReaderViewName } from '../components/materialGroups'
 
 const PAGE_WINDOW = 20
 
-type ReaderView = 'summary' | 'text' | 'image' | 'problems'
+type ReaderView = ReaderViewName
 
 const VERDICT_TEXT: Record<string, string> = {
   correct: '正确',
@@ -58,6 +72,9 @@ export default function Library({
   const [notice, setNotice] = useState('')
   const [uploadKind, setUploadKind] = useState('auto')
   const fileRef = useRef<HTMLInputElement>(null)
+  // 分区上传与通用上传共用同一个隐藏 file input：先把目标类型写进 ref 再打开选择器，
+  // 避免依赖 setState 的异步更新而上传到上一次选择的类型。
+  const pendingKindRef = useRef('auto')
   const lastJumpRef = useRef(0)
 
   const [current, setCurrent] = useState<Material | null>(null)
@@ -159,6 +176,13 @@ export default function Library({
     return materials.filter((m) => m.filename.toLowerCase().includes(q))
   }, [materials, filter])
 
+  // 浏览时保留空分区（空分区就是「点此上传」的入口，新课程也能直接往目标分区传）；
+  // 筛选时隐藏空分区，避免空槽位淹没匹配结果。
+  const zones = useMemo(
+    () => groupMaterials(filtered, { hideEmpty: filter.trim() !== '' }),
+    [filtered, filter],
+  )
+
   const pageText = useMemo(
     () => (doc ? (doc.pages.find((p) => p.page === page)?.text ?? '') : ''),
     [doc, page],
@@ -175,25 +199,27 @@ export default function Library({
       })
       .catch((e: Error) => setNotice(e.message))
       .finally(() => setReading(false))
-  }, [])
+  }, [setDoc, setNotice, setPage, setJumpText, setReading])
 
   function openMaterial(m: Material, target = 1) {
+    // 图片材料没有可读文本页，默认直接打开它的第一张原页图。
+    const wanted = m.kind === 'image' ? firstImagePage(m) : target
     setCurrent(m)
     setSummary(null)
     setExamProblems(null)
     setExamJob('idle')
-    setView(m.kind === 'exam' ? 'problems' : 'summary')
+    setView(defaultReaderView(m))
     setNotice('')
     if (
       doc?.material_id === m.id &&
-      target >= doc.offset + 1 &&
-      target <= doc.offset + doc.pages.length
+      wanted >= doc.offset + 1 &&
+      wanted <= doc.offset + doc.pages.length
     ) {
-      setPage(target)
-      setJumpText(String(target))
+      setPage(wanted)
+      setJumpText(String(wanted))
       return
     }
-    loadWindow(m.id, target)
+    loadWindow(m.id, wanted)
   }
 
   const openAtPage = useCallback(
@@ -202,7 +228,7 @@ export default function Library({
       setCurrent(m)
       setSummary(null)
       setNotice('')
-      setView(m.filename.toLowerCase().endsWith('.pdf') ? 'image' : 'text')
+      setView(hasPageImage(m, target) ? 'image' : 'text')
       if (
         doc?.material_id === m.id &&
         target >= doc.offset + 1 &&
@@ -214,7 +240,7 @@ export default function Library({
       }
       loadWindow(m.id, target)
     },
-    [doc, loadWindow],
+    [doc, loadWindow, setCurrent, setNotice, setPage, setSummary, setJumpText, setView],
   )
 
   useEffect(() => {
@@ -264,6 +290,8 @@ export default function Library({
       return
     }
     const clamped = Math.min(Math.max(1, target), Math.max(1, doc.page_count))
+    // 非 PDF 材料只有内嵌图片的页能看原页图，翻到纯文本页时自动切回原文，避免出现破图。
+    if (view === 'image' && !hasPageImage(current, clamped)) setView('text')
     setJumpText(String(clamped))
     if (clamped >= doc.offset + 1 && clamped <= doc.offset + doc.pages.length) {
       setPage(clamped)
@@ -300,7 +328,7 @@ export default function Library({
 
   function jumpToPage(p: number) {
     if (!current) return
-    setView(current.filename.toLowerCase().endsWith('.pdf') ? 'image' : 'text')
+    setView(hasPageImage(current, p) ? 'image' : 'text')
     gotoPage(p)
   }
 
@@ -312,15 +340,24 @@ export default function Library({
     )
   }
 
-  async function handleUpload(file: File) {
+  // 打开文件选择器前先确定目标类型：让「上传到：X」在选择文件时就已经可见，
+  // 学生不会把试题误传成课件。
+  function pickFile(kind: string) {
+    pendingKindRef.current = kind
+    setUploadKind(kind)
+    fileRef.current?.click()
+  }
+
+  async function handleUpload(file: File, kind: string) {
     if (courseId === null) return
+    const target = uploadTargetLabel(kind)
     setNotice(
-      uploadKind === 'exam' || (uploadKind === 'auto' && /真题|试卷|试题|final|middle/i.test(file.name))
-        ? `正在上传 ${file.name}，试题将在解析后自动切割题目…`
-        : `正在上传 ${file.name}，上传后自动解析入库…`,
+      kind === 'exam' || (kind === 'auto' && /真题|试卷|试题|final|middle/i.test(file.name))
+        ? `正在上传 ${file.name} → ${target}，试题将在解析后自动切割题目…`
+        : `正在上传 ${file.name} → ${target}，上传后自动解析入库…`,
     )
     try {
-      await uploadMaterial(courseId, file, uploadKind)
+      await uploadMaterial(courseId, file, kind)
       setNotice('')
       refresh(courseId)
     } catch (e) {
@@ -412,56 +449,98 @@ export default function Library({
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
         />
-        <ul className="material-list">
-          {filtered.map((m) => (
-            <li key={m.id}>
-              <button
-                className={current?.id === m.id ? 'material-item active' : 'material-item'}
-                title={m.error || m.filename}
-                disabled={m.status !== 'ready'}
-                onClick={() => openMaterial(m)}
-              >
-                <span className={`dot ${m.status}`} />
-                <span className="material-name">{m.filename}</span>
-                <span className={`kind-badge ${m.kind}`}>{materialKindLabel(m.kind)}</span>
-                <span className="material-status">
-                  {m.status === 'ready' ? `${m.chunk_count} 块` : statusText(m.status)}
+        {materials.length === 0 && (
+          <p className="zone-tip">
+            还没有材料。点分区右上角「上传」，文件会直接归入该分区；也可以用下方「自动识别」上传。
+          </p>
+        )}
+        {filtered.length === 0 && materials.length > 0 && (
+          <p className="zone-tip">没有匹配的材料。</p>
+        )}
+        <div className="material-zones">
+          {zones.map((zone) => (
+            <section key={zone.kind} className={`material-zone zone-${zone.kind}`}>
+              <div className="zone-head">
+                <span className="zone-title">{zone.label}</span>
+                <span className="zone-count" title={`${zone.label}共 ${zone.count} 份`}>
+                  {zone.count}
                 </span>
-              </button>
-            </li>
+                <button
+                  className="zone-upload"
+                  title={`${zoneUploadActionLabel(zone.kind)}（${acceptHint(MATERIAL_ACCEPT)}）`}
+                  onClick={() => pickFile(zone.kind)}
+                >
+                  上传
+                </button>
+              </div>
+              {zone.materials.length > 0 ? (
+                <ul className="material-list">
+                  {zone.materials.map((m) => (
+                    <li key={m.id}>
+                      <button
+                        className={current?.id === m.id ? 'material-item active' : 'material-item'}
+                        title={m.error || m.filename}
+                        disabled={m.status !== 'ready'}
+                        onClick={() => openMaterial(m)}
+                      >
+                        <span className={`dot ${m.status}`} />
+                        <span className="material-name">{m.filename}</span>
+                        <span className={`kind-badge ${m.kind}`}>{materialKindLabel(m.kind)}</span>
+                        <span className="material-status">
+                          {m.status === 'ready' ? `${m.chunk_count} 块` : statusText(m.status)}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <button
+                  className="zone-empty"
+                  title={acceptHint(MATERIAL_ACCEPT)}
+                  onClick={() => pickFile(zone.kind)}
+                >
+                  {zoneEmptyLabel(zone.kind)}
+                </button>
+              )}
+            </section>
           ))}
-          {filtered.length === 0 && (
-            <li className="empty">
-              {materials.length === 0 ? '还没有材料，先上传课件' : '没有匹配的材料'}
-            </li>
-          )}
-        </ul>
-        <div className="upload-row">
-          <select
-            className="kind-select"
-            value={uploadKind}
-            title="材料类型：试题不做总结、自动切割题目；教材/课件/讲义生成知识总结"
-            onChange={(e) => setUploadKind(e.target.value)}
-          >
-            <option value="auto">自动识别</option>
-            {Object.entries(KIND_LABELS).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-          <button className="upload" onClick={() => fileRef.current?.click()}>
-            上传材料（PDF / PPTX）
+        </div>
+        <div className="upload-panel">
+          <div className="upload-target">
+            <span>
+              上传到：<strong>{uploadTargetLabel(uploadKind)}</strong>
+            </span>
+            <select
+              className="kind-select"
+              value={uploadKind}
+              title="先选类型再上传：试题不做总结、自动切割题目；教材/课件/讲义生成知识总结；图片只入库检索"
+              onChange={(e) => setUploadKind(e.target.value)}
+            >
+              <option value="auto">自动识别</option>
+              {Object.entries(KIND_LABELS).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="upload-hint">
+            支持的格式：{MATERIAL_FORMAT_HINT}
+            <br />
+            点分区右上角「上传」可直接归入该分区。
+          </div>
+          <button className="upload" onClick={() => pickFile(uploadKind)}>
+            选择文件上传
           </button>
         </div>
         <input
           ref={fileRef}
           type="file"
-          accept=".pdf,.pptx,.txt,.md"
+          accept={MATERIAL_ACCEPT}
           hidden
           onChange={(e) => {
             const file = e.target.files?.[0]
-            if (file) handleUpload(file)
+            if (file) handleUpload(file, pendingKindRef.current)
             e.target.value = ''
           }}
         />
@@ -516,7 +595,7 @@ export default function Library({
                         ] as [ReaderView, string][])
                     )
                       .concat(
-                        current.filename.toLowerCase().endsWith('.pdf')
+                        hasAnyPageImage(current)
                           ? ([['image', '原页图']] as [ReaderView, string][])
                           : [],
                       )
@@ -524,7 +603,13 @@ export default function Library({
                         <button
                           key={value}
                           className={view === value ? 'view-tab active' : 'view-tab'}
-                          onClick={() => setView(value)}
+                          onClick={() => {
+                            setView(value)
+                            // 非 PDF 只有内嵌图片的页能看原页图，切到该页签时直接跳到第一张图。
+                            if (value === 'image' && !hasPageImage(current, page)) {
+                              gotoPage(firstImagePage(current))
+                            }
+                          }}
                         >
                           {label}
                         </button>
