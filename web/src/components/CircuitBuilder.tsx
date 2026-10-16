@@ -49,9 +49,9 @@ import {
 } from '../labs/builder'
 import Plot, { type PlotSeries } from './Plot'
 
-const STROKE = '#3a4254'
-const LABEL = '#5a6274'
-const ACCENT = '#2f5bd8'
+const STROKE = 'currentColor'
+const LABEL = 'currentColor'
+const ACCENT = '#5b82e8'
 const DANGER = '#c8483f'
 const SAVE_KEY = 'courseta.lab.build.v1'
 const PROBE_COLORS = ['#2f5bd8', '#c8483f', '#2e9e5b', '#b07d2b', '#7d4bd8', '#0f9ec0', '#d3548c']
@@ -767,7 +767,7 @@ export default function CircuitBuilder() {
             />
             <g pointerEvents="none">
               {gridDots.map((p) => (
-                <circle key={ptKey(p)} cx={px(p.x)} cy={px(p.y)} r={1.3} fill="#dfe4ee" />
+                <circle key={ptKey(p)} cx={px(p.x)} cy={px(p.y)} r={1.3} fill="currentColor" fillOpacity={0.32} />
               ))}
             </g>
 

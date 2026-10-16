@@ -55,7 +55,7 @@ export interface Lab {
   run: (p: Record<string, number>) => LabRun
 }
 
-const C = { main: '#2f5bd8', second: '#d8622f', ref: '#9aa1b2', peak: '#2fae66' }
+const C = { main: '#5f9bff', second: '#ff9d5c', ref: '#93a0b4', peak: '#3ed488' }
 
 /** 数字 → 带工程前缀的字符串，如 0.004995 A → "5 mA" */
 export function formatSi(value: number, unit: string): string {

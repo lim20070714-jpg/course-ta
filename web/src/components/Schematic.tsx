@@ -1,7 +1,7 @@
 /** 预置实验的简化电路图（IEC 符号）。数值由滑块驱动，图中只画拓扑与元件名。 */
 
-const STROKE = '#3a4254'
-const LABEL = '#5a6274'
+const STROKE = 'currentColor'
+const LABEL = 'currentColor'
 
 function Wire({ d }: { d: string }) {
   return <path d={d} fill="none" stroke={STROKE} strokeWidth={1.6} />

@@ -166,29 +166,61 @@ export default function Plot({ series, xLabel, yLabel, xLog = false, height = 32
         onPointerMove={onMove}
         onPointerLeave={() => setHover(null)}
       >
+        <rect
+          x={M.left}
+          y={M.top}
+          width={innerW}
+          height={innerH}
+          rx={10}
+          style={{ fill: 'var(--scope-bg)' }}
+        />
         {yTicks.map((t) => (
           <g key={`y${t}`}>
-            <line x1={M.left} x2={W - M.right} y1={py(t)} y2={py(t)} stroke="#eef0f5" />
-            <text x={M.left - 8} y={py(t) + 4} fontSize={11} fill="#8a91a3" textAnchor="end">
+            <line
+              x1={M.left}
+              x2={W - M.right}
+              y1={py(t)}
+              y2={py(t)}
+              style={{ stroke: 'var(--scope-grid)' }}
+            />
+            <text x={M.left - 8} y={py(t) + 4} fontSize={11} style={{ fill: 'var(--muted)' }} textAnchor="end">
               {fmtTick(t)}
             </text>
           </g>
         ))}
         {xTicks.map((t) => (
           <g key={`x${t}`}>
-            <line y1={M.top} y2={H - M.bottom} x1={px(t)} x2={px(t)} stroke="#eef0f5" />
-            <text x={px(t)} y={H - M.bottom + 16} fontSize={11} fill="#8a91a3" textAnchor="middle">
+            <line
+              y1={M.top}
+              y2={H - M.bottom}
+              x1={px(t)}
+              x2={px(t)}
+              style={{ stroke: 'var(--scope-grid)' }}
+            />
+            <text x={px(t)} y={H - M.bottom + 16} fontSize={11} style={{ fill: 'var(--muted)' }} textAnchor="middle">
               {fmtTick(t)}
             </text>
           </g>
         ))}
-        <line x1={M.left} x2={W - M.right} y1={H - M.bottom} y2={H - M.bottom} stroke="#c9ced9" />
-        <line x1={M.left} x2={M.left} y1={M.top} y2={H - M.bottom} stroke="#c9ced9" />
+        <line
+          x1={M.left}
+          x2={W - M.right}
+          y1={H - M.bottom}
+          y2={H - M.bottom}
+          style={{ stroke: 'var(--scope-axis)' }}
+        />
+        <line
+          x1={M.left}
+          x2={M.left}
+          y1={M.top}
+          y2={H - M.bottom}
+          style={{ stroke: 'var(--scope-axis)' }}
+        />
         <text
           x={(M.left + W - M.right) / 2}
           y={H - 8}
           fontSize={12}
-          fill="#5a6274"
+          style={{ fill: 'var(--text-3)' }}
           textAnchor="middle"
         >
           {xLabel}
@@ -198,12 +230,25 @@ export default function Plot({ series, xLabel, yLabel, xLog = false, height = 32
           x={16}
           y={M.top + innerH / 2}
           fontSize={12}
-          fill="#5a6274"
+          style={{ fill: 'var(--text-3)' }}
           textAnchor="middle"
         >
           {yLabel}
         </text>
 
+        {series
+          .filter((s) => !s.marker && !s.dashed)
+          .map((s) => (
+            <path
+              key={`${s.label}-glow`}
+              d={pathOf(s)}
+              fill="none"
+              stroke={s.color}
+              strokeWidth={5.5}
+              opacity={0.22}
+              strokeLinecap="round"
+            />
+          ))}
         {series
           .filter((s) => !s.marker)
           .map((s) => (
@@ -212,7 +257,7 @@ export default function Plot({ series, xLabel, yLabel, xLog = false, height = 32
               d={pathOf(s)}
               fill="none"
               stroke={s.color}
-              strokeWidth={s.dashed ? 1.4 : 1.8}
+              strokeWidth={s.dashed ? 1.4 : 2}
               strokeDasharray={s.dashed ? '6 5' : undefined}
             />
           ))}
@@ -225,7 +270,7 @@ export default function Plot({ series, xLabel, yLabel, xLog = false, height = 32
               cy={py(s.y[0])}
               r={4.5}
               fill={s.color}
-              stroke="#fff"
+              style={{ stroke: 'var(--scope-bg)' }}
               strokeWidth={1.5}
             />
           ))}
@@ -237,7 +282,7 @@ export default function Plot({ series, xLabel, yLabel, xLog = false, height = 32
               x2={px(hoverX)}
               y1={M.top}
               y2={H - M.bottom}
-              stroke="#b9bfcc"
+              style={{ stroke: 'var(--scope-cross)' }}
               strokeDasharray="3 3"
             />
             {hoverSeries.map((s) => (
@@ -246,7 +291,7 @@ export default function Plot({ series, xLabel, yLabel, xLog = false, height = 32
                 cx={px(s.x[hover])}
                 cy={py(s.y[hover])}
                 r={3.5}
-                fill="#fff"
+                style={{ fill: 'var(--scope-bg)' }}
                 stroke={s.color}
                 strokeWidth={2}
               />
@@ -256,11 +301,9 @@ export default function Plot({ series, xLabel, yLabel, xLog = false, height = 32
                 width={204}
                 height={20 + 16 * hoverSeries.length}
                 rx={6}
-                fill="#fff"
-                stroke="#d7dbe4"
-                opacity={0.96}
+                style={{ fill: 'var(--scope-bg)', stroke: 'var(--scope-axis)', opacity: 0.96 }}
               />
-              <text x={10} y={16} fontSize={11} fill="#1f2430">
+              <text x={10} y={16} fontSize={11} style={{ fill: 'var(--scope-ink)' }}>
                 {`${xLabel.split(' ')[0]} = ${fmtTick(hoverX)}`}
               </text>
               {hoverSeries.map((s, i) => (

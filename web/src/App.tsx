@@ -33,6 +33,9 @@ const TABS: { id: Tab; label: string }[] = [
 
 export default function App() {
   const [tab, setTab] = useState<Tab>('library')
+  const [theme, setTheme] = useState<'light' | 'dark'>(() =>
+    document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light',
+  )
   const [courses, setCourses] = useState<Course[]>([])
   const [activeCourseId, setActiveCourseId] = useState<number | null>(null)
   const [creating, setCreating] = useState(false)
@@ -66,6 +69,15 @@ export default function App() {
     }
   }
 
+  const toggleTheme = () =>
+    setTheme((t) => {
+      const next = t === 'dark' ? 'light' : 'dark'
+      if (next === 'dark') document.documentElement.dataset.theme = 'dark'
+      else delete document.documentElement.dataset.theme
+      localStorage.setItem('courseta.theme', next)
+      return next
+    })
+
   return (
     <div className="app-shell">
       <nav className="topbar">
@@ -84,6 +96,13 @@ export default function App() {
           </button>
         ))}
         <div className="topbar-right">
+          <button
+            className="mini ghost theme-toggle"
+            onClick={toggleTheme}
+            title={theme === 'dark' ? '切换到浅色模式' : '切换到深色模式'}
+          >
+            {theme === 'dark' ? '浅色' : '深色'}
+          </button>
           {creating ? (
             <>
               <input
