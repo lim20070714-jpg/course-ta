@@ -1,14 +1,25 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { ProblemDetail, ReviewDueItem, ReviewStats } from '../api'
+import type { ProblemDetail, ReviewDueItem, ReviewSprint, ReviewStats } from '../api'
 import {
   getProblem,
   getReviewCards,
   getReviewDue,
+  getReviewSprint,
   getReviewStats,
   gradeReview,
   removeReview,
+  setExamDate,
 } from '../api'
 import RichText from '../components/RichText'
+import {
+  countdownLabel,
+  countdownTone,
+  filterQueueByTag,
+  formatSchedule,
+  sprintBadge,
+  sprintCta,
+  toDateInputValue,
+} from '../components/sprint'
 
 // 自评分 → SM-2 质量分（<3 视为遗忘）
 const GRADES: { quality: number; label: string; hint: string }[] = [
@@ -19,6 +30,8 @@ const GRADES: { quality: number; label: string; hint: string }[] = [
 ]
 
 const DAY_MS = 86400000
+const DUE_LIMIT = 100
+const MAX_LIMIT = 500
 
 function startOfDay(d: Date) {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
@@ -54,8 +67,18 @@ export default function Review({
   const [loaded, setLoaded] = useState(false)
   const [notice, setNotice] = useState('')
 
+  // 冲刺模式（考试日期 / 倒计时 / 高频考点）；请求失败时为 null，界面按原有形态工作。
+  // 数据带上所属课程 id，切换课程时在渲染期自然失效，无需在 effect 里同步重置。
+  const [sprintState, setSprintState] = useState<{
+    course: number
+    data: ReviewSprint | null
+  } | null>(null)
+  const [examSaving, setExamSaving] = useState(false)
+  const [tagFilterState, setTagFilterState] = useState<{ course: number; tag: string } | null>(null)
+
   // 会话状态
   const [queue, setQueue] = useState<ReviewDueItem[]>([])
+  const [sessionMode, setSessionMode] = useState<'due' | 'sprint'>('due')
   const [idx, setIdx] = useState(0)
   const [detail, setDetail] = useState<ProblemDetail | null>(null)
   const [revealed, setRevealed] = useState(false)
@@ -67,6 +90,9 @@ export default function Review({
     getReviewStats(id)
       .then(setStats)
       .catch(() => undefined)
+    getReviewSprint(id)
+      .then((data) => setSprintState({ course: id, data }))
+      .catch(() => setSprintState({ course: id, data: null }))
     getReviewCards(id)
       .then((rows) => {
         setNowMs(Date.now())
@@ -89,16 +115,22 @@ export default function Review({
       .catch((e: Error) => setNotice(e.message))
   }, [])
 
-  function startSession() {
+  function startSession(mode: 'due' | 'sprint' = 'due') {
     if (courseId === null) return
     setNotice('')
-    getReviewDue(courseId)
+    // 冲刺队列由后端按权重排好序，这里只负责原样呈现，不做任何重排
+    const wantSprint = mode === 'sprint' && sprint !== null && sprint.sprint
+    const limit = wantSprint
+      ? Math.min(MAX_LIMIT, Math.max(DUE_LIMIT, sprint.recommended))
+      : DUE_LIMIT
+    getReviewDue(courseId, limit, wantSprint)
       .then((due) => {
         if (due.length === 0) {
-          setNotice('现在没有到期的卡片，稍后再来。')
+          setNotice(wantSprint ? '冲刺队列暂时没有可复习的卡片。' : '现在没有到期的卡片，稍后再来。')
           return
         }
         setQueue(due)
+        setSessionMode(wantSprint ? 'sprint' : 'due')
         setIdx(0)
         setReviewed(0)
         loadDetail(due[0].problem_id)
@@ -162,12 +194,41 @@ export default function Review({
     }
   }
 
+  async function changeExamDate(value: string) {
+    if (courseId === null || examSaving) return
+    setExamSaving(true)
+    setNotice('')
+    try {
+      await setExamDate(courseId, value ? value : null)
+      setTagFilterState(null)
+      refresh(courseId)
+    } catch (e) {
+      setNotice((e as Error).message)
+    } finally {
+      setExamSaving(false)
+    }
+  }
+
+  function toggleTag(tag: string) {
+    const id = courseId
+    if (id === null) return
+    setTagFilterState((cur) =>
+      cur !== null && cur.course === id && cur.tag === tag ? { course: id, tag: '' } : { course: id, tag },
+    )
+  }
+
   if (courseId === null) {
     return <div className="lib-empty">还没有课程。请先在右上角新建一门课程。</div>
   }
 
   const inSession = queue.length > 0
   const finished = inSession && idx >= queue.length
+  const sprint = sprintState !== null && sprintState.course === courseId ? sprintState.data : null
+  const tagFilter =
+    tagFilterState !== null && tagFilterState.course === courseId ? tagFilterState.tag : null
+  const cta = sprintCta(sprint)
+  const badge = sprint && sprint.exam_date ? sprintBadge(sprint.status, sprint.stage) : null
+  const visibleCards = filterQueueByTag(cards, tagFilter)
 
   return (
     <div className="review-page">
@@ -187,6 +248,12 @@ export default function Review({
             </div>
           ) : (
             <div className="review-session">
+              {sessionMode === 'sprint' && (
+                <div className="review-sprint-banner">
+                  <span className="sprint-badge tone-sprint">冲刺模式</span>
+                  <span>队列已按考频权重排好序，先做最值钱的题。</span>
+                </div>
+              )}
               <div className="review-session-head">
                 <span className="review-progress">
                   {idx + 1} / {queue.length}
@@ -210,8 +277,20 @@ export default function Review({
                     </span>
                     <span className="review-meta">
                       已连对 {queue[idx].reps} 次 · 间隔 {intervalLabel(queue[idx].interval_days)}
+                      {typeof queue[idx].weight === 'number' &&
+                        queue[idx].weight > 0 &&
+                        ` · 权重 ${queue[idx].weight.toFixed(1)}`}
                     </span>
                   </div>
+                  {(queue[idx].reasons?.length ?? 0) > 0 && (
+                    <div className="review-reasons">
+                      {queue[idx].reasons?.map((reason) => (
+                        <span key={reason} className="review-reason">
+                          {reason}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                   <div className="prob-tags">
                     {detail.knowledge.map((tag) => (
                       <span key={tag} className="tag">
@@ -282,12 +361,116 @@ export default function Review({
                   按 SM-2 间隔重复安排：在题库题目页点「加入复习计划」，到期题目会出现在这里。
                 </p>
               </div>
-              {stats && stats.due_now > 0 && (
-                <button className="review-start" onClick={startSession}>
-                  开始复习（{stats.due_now} 张到期）
-                </button>
-              )}
+              <div className="review-head-actions">
+                {cta.show && (
+                  <button className="review-start sprint-start" onClick={() => startSession('sprint')}>
+                    {cta.label}
+                  </button>
+                )}
+                {stats && stats.due_now > 0 && (
+                  <button
+                    className={cta.show ? 'review-start ghost-btn' : 'review-start'}
+                    onClick={() => startSession('due')}
+                  >
+                    开始复习（{stats.due_now} 张到期）
+                  </button>
+                )}
+              </div>
             </div>
+
+            {sprint && (
+              <section className={sprint.sprint ? 'sprint-panel active' : 'sprint-panel'}>
+                <div className="sprint-panel-head">
+                  <div className="sprint-panel-title">
+                    <h3>考试冲刺</h3>
+                    <p className="sprint-sub">
+                      {sprint.exam_date ? sprint.message : '设置考试日期后可开启冲刺模式'}
+                    </p>
+                  </div>
+                  <div className="sprint-date-row">
+                    <label className="sprint-date">
+                      <span>考试日期</span>
+                      <input
+                        type="date"
+                        value={toDateInputValue(sprint.exam_date)}
+                        disabled={examSaving}
+                        onChange={(e) => changeExamDate(e.target.value)}
+                      />
+                    </label>
+                    {sprint.exam_date && (
+                      <button
+                        className="mini ghost"
+                        disabled={examSaving}
+                        onClick={() => changeExamDate('')}
+                      >
+                        清除
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {sprint.exam_date && (
+                  <>
+                    <div className="sprint-metrics">
+                      <div className={`sprint-countdown tone-${countdownTone(sprint.days_left)}`}>
+                        <span className="sprint-countdown-num">
+                          {countdownLabel(sprint.days_left)}
+                        </span>
+                        {badge && (
+                          <span className={`sprint-badge tone-${badge.key}`}>{badge.label}</span>
+                        )}
+                      </div>
+                      <div className="sprint-facts">
+                        <span>计划 {sprint.sprint_pool} 张</span>
+                        <span>已到期 {sprint.due_count} 张</span>
+                        {sprint.sprint && <span>冲刺队列 {sprint.recommended} 张</span>}
+                        <span>知识点 {sprint.tag_total} 个</span>
+                      </div>
+                    </div>
+
+                    {sprint.status === 'over' ? (
+                      <p className="sprint-note warn">
+                        {`${countdownLabel(sprint.days_left)}：可把日期更新为下一次考试重新开启冲刺，或清除日期恢复常规复习。`}
+                      </p>
+                    ) : sprint.sprint && sprint.schedule.length > 0 ? (
+                      <p className="sprint-schedule">
+                        复习节奏 {formatSchedule(sprint.schedule)}
+                      </p>
+                    ) : (
+                      <p className="sprint-note">
+                        超过 30 天，暂未进入冲刺模式。
+                        {sprint.schedule.length > 0 &&
+                          `进入冲刺后复习节奏将压缩为 ${formatSchedule(sprint.schedule)}。`}
+                      </p>
+                    )}
+
+                    {sprint.sprint && cta.show && cta.hint && (
+                      <p className="sprint-note">{cta.hint}</p>
+                    )}
+
+                    {sprint.top_tags.length > 0 && (
+                      <div className="sprint-tags">
+                        <span className="sprint-tags-label">高频考点</span>
+                        <div className="sprint-tag-list">
+                          {sprint.top_tags.map((tag, i) => (
+                            <button
+                              key={tag.knowledge}
+                              className={`sprint-tag${tagFilter === tag.knowledge ? ' active' : ''}`}
+                              title={`命中 ${tag.count} 道题`}
+                              onClick={() => toggleTag(tag.knowledge)}
+                            >
+                              <span className="sprint-tag-rank">{i + 1}</span>
+                              <span className="sprint-tag-name">{tag.knowledge}</span>
+                              <span className="sprint-tag-count">{tag.count} 题</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+              </section>
+            )}
 
             {stats && (
               <div className="review-stats">
@@ -336,8 +519,19 @@ export default function Review({
               </div>
             )}
 
+            {tagFilter && (
+              <div className="review-filter-bar">
+                <span>
+                  只看「{tagFilter}」：{visibleCards.length} / {cards.length} 张
+                </span>
+                <button className="mini ghost" onClick={() => setTagFilterState(null)}>
+                  清除筛选
+                </button>
+              </div>
+            )}
+
             <div className="review-list">
-              {cards.map((c) => {
+              {visibleCards.map((c) => {
                 const overdue = new Date(c.due_at).getTime() <= nowMs
                 return (
                   <div key={c.problem_id} className="review-row">
@@ -346,6 +540,15 @@ export default function Review({
                         {c.material} · 第 {c.page} 页 {c.number && `· ${c.number}`}
                       </span>
                       <span className="prob-excerpt">{c.excerpt}</span>
+                      {(c.reasons?.length ?? 0) > 0 && (
+                        <span className="review-reasons">
+                          {c.reasons?.map((reason) => (
+                            <span key={reason} className="review-reason">
+                              {reason}
+                            </span>
+                          ))}
+                        </span>
+                      )}
                     </button>
                     <div className="review-row-side">
                       <span className={`review-due ${overdue ? 'overdue' : ''}`}>
@@ -354,6 +557,7 @@ export default function Review({
                       <span className="review-meta">
                         间隔 {intervalLabel(c.interval_days)} · 连对 {c.reps}
                         {c.lapses > 0 && ` · 忘过 ${c.lapses} 次`}
+                        {typeof c.weight === 'number' && c.weight > 0 && ` · 权重 ${c.weight.toFixed(1)}`}
                       </span>
                       <button className="mini ghost" onClick={() => removeCard(c.problem_id)}>
                         移出计划
@@ -363,6 +567,10 @@ export default function Review({
                 )
               })}
             </div>
+
+            {loaded && cards.length > 0 && visibleCards.length === 0 && (
+              <p className="empty">该考点暂无计划中的卡片。</p>
+            )}
           </>
         )}
       </main>

@@ -428,6 +428,36 @@ export interface ReviewDueItem extends ReviewCard {
   page: number
   excerpt: string
   knowledge: string[]
+  // 冲刺模式附加字段：非冲刺期为 0 / 空数组（后端可能不返回，故可选）
+  weight?: number
+  reasons?: string[]
+}
+
+export interface SprintRecommendation {
+  knowledge: string
+  count: number
+  score: number
+}
+
+export interface ReviewSprint {
+  course_id: number
+  exam_date: string | null
+  days_left: number | null
+  sprint: boolean
+  status: string // none | over | sprint | normal
+  schedule: number[]
+  stage: string
+  due_count: number
+  sprint_pool: number
+  recommended: number
+  tag_total: number
+  message: string
+  top_tags: SprintRecommendation[]
+}
+
+export interface ExamDateResult {
+  course_id: number
+  exam_date: string | null
 }
 
 export interface ReviewStats {
@@ -440,13 +470,26 @@ export interface ReviewStats {
 export const getReviewStats = (courseId: number) =>
   fetch(`/api/courses/${courseId}/review/stats`).then((r) => json<ReviewStats>(r))
 
-export const getReviewDue = (courseId: number, limit = 100) =>
-  fetch(`/api/courses/${courseId}/review/due?limit=${limit}`).then((r) =>
-    json<ReviewDueItem[]>(r),
+// exam=true 时后端进入考试冲刺模式：包含未到期卡片并按考点热度加权排序
+export const getReviewDue = (courseId: number, limit = 100, exam = false) =>
+  fetch(`/api/courses/${courseId}/review/due?limit=${limit}${exam ? '&exam=true' : ''}`).then(
+    (r) => json<ReviewDueItem[]>(r),
   )
 
 export const getReviewCards = (courseId: number) =>
   fetch(`/api/courses/${courseId}/review/cards`).then((r) => json<ReviewDueItem[]>(r))
+
+// 考试冲刺模式：考试日期 + 距离天数 + 压缩节奏 + 高频考点
+export const getReviewSprint = (courseId: number) =>
+  fetch(`/api/courses/${courseId}/review/sprint`).then((r) => json<ReviewSprint>(r))
+
+// examDate 传 "YYYY-MM-DD"；传 null 清除考试日期
+export const setExamDate = (courseId: number, examDate: string | null) =>
+  fetch(`/api/courses/${courseId}/exam-date`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ exam_date: examDate }),
+  }).then((r) => json<ExamDateResult>(r))
 
 export const getProblemReview = (problemId: number) =>
   fetch(`/api/problems/${problemId}/review`).then((r) => json<ReviewCard | null>(r))

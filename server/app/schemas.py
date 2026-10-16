@@ -1,4 +1,10 @@
-from datetime import datetime
+"""接口出入参模型。
+
+`exam_date` 语义上只是「哪一天考试」，因此对外一律序列化为 `YYYY-MM-DD`，
+不暴露内部用来存储的 UTC 零点 datetime（避免前端/客户端误解时区）。
+"""
+
+from datetime import date, datetime
 
 from pydantic import BaseModel
 
@@ -12,6 +18,16 @@ class CourseRead(BaseModel):
     id: int
     name: str
     description: str
+    exam_date: date | None = None  # 只暴露日期，不含时间与时区
+
+
+class ExamDateUpdate(BaseModel):
+    exam_date: str | None = None  # "YYYY-MM-DD"；None 表示清除考试日期
+
+
+class ExamDateRead(BaseModel):
+    course_id: int
+    exam_date: date | None = None
 
 
 class MaterialRead(BaseModel):
@@ -236,6 +252,30 @@ class ReviewDueItem(ReviewCardRead):
     page: int = 0
     excerpt: str = ""
     knowledge: list[str] = []
+    weight: float = 0.0  # 冲刺队列排序权重
+    reasons: list[str] = []  # 为什么排在前面（高频考点 / 已到期 / 多次遗忘）
+
+
+class SprintRecommendation(BaseModel):
+    knowledge: str
+    count: int
+    score: float
+
+
+class ReviewSprintRead(BaseModel):
+    course_id: int
+    exam_date: date | None = None
+    days_left: int | None = None  # 0 = 考试当天，负数 = 考试已过
+    sprint: bool = False  # 是否处于冲刺期（考试日期已设置且 0 <= days_left <= 30）
+    status: str = "none"  # none | over | sprint | normal
+    schedule: list[int] = []  # 冲刺复习节奏（天）
+    stage: str = ""  # 基础巩固 | 强化冲刺 | 考前收尾 | 临考突击
+    due_count: int = 0  # 当前已到期卡片数
+    sprint_pool: int = 0  # 复习计划卡片总数
+    recommended: int = 0  # 冲刺队列本次可推进的卡片数
+    tag_total: int = 0  # 题库中出现的知识点标签数
+    message: str = ""
+    top_tags: list[SprintRecommendation] = []
 
 
 class ReviewGradeRequest(BaseModel):
@@ -252,3 +292,6 @@ class ReviewStatsRead(BaseModel):
     due_now: int
     reviewed_today: int
     forecast: list[ReviewDayCount] = []
+    exam_date: date | None = None
+    exam_days_left: int | None = None  # 距考试天数，可为负（已过）
+    due_before_exam: int = 0  # 考试日结束前到期的卡片数（含逾期）

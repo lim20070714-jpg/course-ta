@@ -11,6 +11,7 @@ class Course(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     name: str = Field(index=True)
     description: str = ""
+    exam_date: datetime | None = Field(default=None)  # 考试日期（UTC 零点，仅日期语义）
     created_at: datetime = Field(default_factory=_now)
 
 
