@@ -8,8 +8,7 @@ import pymupdf
 from pptx import Presentation
 from sqlmodel import Session, delete
 
-from app import db
-from app.config import settings
+from app import config, db
 from app.core import llm, media, summary
 from app.core.glyph_tables import (
     GLITCH_CHAR_MAP,
@@ -99,13 +98,13 @@ async def ingest_pages(
         body = extract_docx_pages(p) if suffix == ".docx" else _extract_pptx(p)
         pages = [(page_no, text) for page_no, text in body]
         dirsuffix = "docx" if suffix == ".docx" else "pptx"
-        target_dir = media.media_dir(settings.data_dir, material_id) / dirsuffix
+        target_dir = media.media_dir(config.current().data_dir, material_id) / dirsuffix
         blobs = _embedded_images(p, suffix)
         for index, image_path in enumerate(media.write_images(blobs, target_dir), start=1):
             page_no = len(pages) + index
             rel = f"media/{material_id}/{dirsuffix}/{image_path.name}"
             images.append((page_no, rel))
-            if describe and settings.vision_model:
+            if describe and config.current().vision_model:
                 desc = await media.describe_image(image_path)
                 text = media.description_text(desc, index) if desc else ""
                 if text:
@@ -328,8 +327,8 @@ def chunk_pages(
     pages: list[tuple[int, str]], chunk_size: int | None = None, overlap: int | None = None
 ) -> list[dict]:
     """把每页文本切成带重叠的片段（保留换行结构），保留页码信息。"""
-    chunk_size = chunk_size or settings.chunk_size
-    overlap = overlap or settings.chunk_overlap
+    chunk_size = chunk_size or config.current().chunk_size
+    overlap = overlap or config.current().chunk_overlap
     chunks: list[dict] = []
     seq = 0
     for page_no, text in pages:
@@ -366,7 +365,7 @@ async def _repair_one(text: str, title: str, page_no: int) -> str:
             ],
             max_tokens=3072,
             timeout_s=180.0,
-            model=settings.problem_model,
+            model=config.current().problem_model,
         )
     except Exception:  # noqa: BLE001 修复失败保留原文，不影响入库
         return text

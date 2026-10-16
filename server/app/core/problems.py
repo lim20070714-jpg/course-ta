@@ -8,8 +8,7 @@ from typing import Any
 
 from sqlmodel import Session, delete
 
-from app import db
-from app.config import settings
+from app import config, db
 from app.core import llm
 from app.core.ingest import extract_pages
 from app.core.pages import group_pages
@@ -251,7 +250,7 @@ async def run_extraction(material_id: int) -> None:
                             ],
                             max_tokens=_EXTRACT_MAX_TOKENS,
                             timeout_s=300.0,
-                            model=settings.problem_model,
+                            model=config.current().problem_model,
                         )
                         parsed = _parse_output(text)
                         if parsed:
@@ -325,7 +324,7 @@ async def generate_hint(problem: Problem) -> str:
         ],
         max_tokens=400,
         timeout_s=120.0,
-        model=settings.problem_model,
+        model=config.current().problem_model,
     )
     return hint.strip()
 

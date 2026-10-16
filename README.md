@@ -133,6 +133,57 @@ curl localhost:8000/api/courses/1/review/sprint   # 冲刺概览与高频考点
 | TXT / MD | 直接入库 |
 | 图片（PNG / JPG / WEBP / GIF / BMP / TIFF） | 本身作为第 1 页可查看；配置 `VISION_MODEL` 后生成文字描述并入库检索 |
 
+## 给别人的用法（不用花我的额度）
+
+这个项目开源的目的就是**任何人可以自己跑一份**。三条路，花谁的额度一目了然：
+
+| 用法 | 怎么用 | 花谁的 token |
+| --- | --- | --- |
+| **自己本地跑**（推荐） | 克隆仓库 → 装依赖 → 在 `server/.env` 填自己的 Key | 自己的 |
+| **用别人部署的实例** | 打开网页 → 右上角「设置」填自己的 Key（自带密钥 / BYOK） | 自己的 |
+| **部署一台共享实例** | Docker Compose 起服务，**`.env` 里不填 `LLM_API_KEY`** | 每个访问者各自承担 |
+
+### 自带密钥（BYOK）
+
+访问者可以在界面右上角「设置」里填自己的 API Key、接口地址与模型。密钥**只保存在访问者的浏览器**，
+随请求头发给服务端**按次使用、不落库**；因此共用别人的实例时，消耗的是填写者自己的额度。
+
+请求头（供直接调 API 的人使用）：
+
+| 请求头 | 说明 |
+| --- | --- |
+| `X-LLM-API-Key` | 必填，使用自己的密钥 |
+| `X-LLM-Base-URL` | 可选，覆盖接口地址（如本地 Ollama `http://localhost:11434/v1`） |
+| `X-LLM-Model` | 可选，覆盖对话模型 |
+| `X-Embedding-API-Key` | 可选，向量模型密钥；对话服务商不提供 embeddings 时单独给（如 DeepSeek + DashScope） |
+| `X-Embedding-Base-URL` | 可选，覆盖向量接口地址 |
+| `X-Embedding-Model` | 可选，覆盖向量模型 |
+| `X-Vision-Model` | 可选，覆盖图片描述模型 |
+
+```bash
+# 不带密钥：使用服务端配置（部署者额度）
+curl localhost:8000/api/chat -H 'Content-Type: application/json' -d '{"course_id":1,"question":"戴维南定理"}'
+
+# 带自己的密钥：本次请求使用你的额度，服务端不保存
+curl localhost:8000/api/chat \
+  -H 'X-LLM-API-Key: sk-your-own-key' \
+  -H 'Content-Type: application/json' \
+  -d '{"course_id":1,"question":"戴维南定理"}'
+```
+
+`GET /api/config` 会返回服务端是否配置了密钥、以及上述请求头名称（**不会回显密钥本身**）。
+如果你把实例开放给别人又不想被消耗额度：**把 `.env` 里的 `LLM_API_KEY` 留空** —— 此时服务端没有可消耗的密钥，
+所有人必须填自己的 Key 才能使用 AI 功能，界面也会明确提示。
+
+> 部署到域名后记得设置 `CORS_ORIGINS`，否则浏览器跨域会拦住请求。
+
+### API 文档
+
+- 交互式文档（Swagger UI）：`http://<你的地址>:8000/docs`
+- 备用文档（ReDoc）：`/redoc`；OpenAPI JSON：`/openapi.json`
+- 中文接口说明与 SSE 接入示例：见 [docs/API.md](docs/API.md)
+- 自托管部署（本机 / Docker / 反向代理）见 [docs/DEPLOY.md](docs/DEPLOY.md)
+
 ### 测试与评测
 
 ```bash

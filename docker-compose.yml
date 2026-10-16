@@ -1,0 +1,60 @@
+# CourseTA 自托管编排：api（FastAPI）+ web（nginx 托管前端并反代 /api）
+#
+# 详细步骤见 docs/DEPLOY.md。最简流程：
+#   1) cp server/.env.example server/.env   # 填 LLM_* / EMBEDDING_* / CORS_ORIGINS
+#   2) docker compose up -d --build
+#   3) 打开 http://<服务器IP>:8080
+#
+# 注意：数据（SQLite 库 + 上传材料）只在 api 容器的 /app/data 里，
+# 该目录挂载到命名卷 course-ta-data；容器重建不会丢数据。
+
+name: course-ta
+
+services:
+  api:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    image: course-ta-api:local
+    restart: unless-stopped
+
+    # 服务端配置（LLM/向量/CORS）统一放在 server/.env，逐项含义见 server/.env.example。
+    # required: false ⇒ 文件不存在也能启动（纯 BYOK 模式：服务端不持密钥，访问者自带）。
+    # 该写法需要 Docker Compose >= 2.24；老版本请改成 `env_file: [./server/.env]`
+    # 并确保先创建 server/.env。
+    env_file:
+      - path: ./server/.env
+        required: false
+
+    environment:
+      # 持久化目录 = 下面挂载的卷；不要指向容器内其他路径
+      DATA_DIR: /app/data
+      # 纯 BYOK 共享实例请把 LLM_API_KEY 留空（放在 server/.env 里留空即可），
+      # 这样 /api/config 的 server_key_configured 为 false，访问者必须自带密钥。
+
+    volumes:
+      - course_data:/app/data
+
+    # 仅绑定回环：方便在宿主机直接调试或用 /docs，不对外网暴露 API。
+    # 想给内网其他机器直连 API（"只用 API" 那条路径）就改成 "8000:8000"。
+    ports:
+      - "127.0.0.1:8000:8000"
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    image: course-ta-web:local
+    restart: unless-stopped
+
+    depends_on:
+      api:
+        condition: service_started
+
+    # 对外只暴露这一个端口：页面 + /api + /docs 全在这里
+    ports:
+      - "8080:80"
+
+volumes:
+  course_data:
+    name: course-ta-data

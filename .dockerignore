@@ -1,0 +1,12 @@
+# 说明：docker-compose.yml 里两个服务的构建上下文分别是 ./server 与 ./web，
+# 各自使用 server/.dockerignore 与 web/.dockerignore；本文件只在「以仓库根目录为构建上下文」
+# 时才生效（仓库根目录没有 Dockerfile，正常流程不会用到），列出仅为防止误把大目录/私密文件塞进上下文。
+.git/
+.github/
+docs/
+evals/
+web/node_modules/
+web/dist/
+server/.venv/
+server/data/
+server/.env

@@ -11,8 +11,7 @@ from typing import Any
 
 from sqlmodel import Session, select
 
-from app import db
-from app.config import settings
+from app import config, db
 from app.core import llm
 from app.core.pages import group_pages, merge_page_chunks
 from app.models import Chunk, Material, Summary
@@ -192,7 +191,7 @@ async def _parse_call(system: str, user: str) -> dict[str, Any] | None:
             [{"role": "system", "content": system}, {"role": "user", "content": user}],
             max_tokens=_MAX_TOKENS,
             timeout_s=_TIMEOUT_S,
-            model=settings.problem_model,
+            model=config.current().problem_model,
         )
     except Exception:  # noqa: BLE001 单批失败不致命，丢弃该批结果
         return None

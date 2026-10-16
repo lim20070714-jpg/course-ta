@@ -1,3 +1,5 @@
+import { credentialHeaders, loadCredentials } from './llmKey'
+
 export interface Course {
   id: number
   name: string
@@ -138,10 +140,10 @@ export interface MaterialSummary {
 }
 
 export const getMaterialSummary = (materialId: number) =>
-  fetch(`/api/materials/${materialId}/summary`).then((r) => json<MaterialSummary>(r))
+  apiFetch(`/api/materials/${materialId}/summary`).then((r) => json<MaterialSummary>(r))
 
 export const regenerateSummary = (materialId: number) =>
-  fetch(`/api/materials/${materialId}/summary`, { method: 'POST' }).then((r) =>
+  apiFetch(`/api/materials/${materialId}/summary`, { method: 'POST' }).then((r) =>
     json<{ status: string }>(r),
   )
 
@@ -163,7 +165,7 @@ export interface ComputeResult {
 }
 
 export const evaluateCompute = (payload: ComputePayload) =>
-  fetch('/api/compute/evaluate', {
+  apiFetch('/api/compute/evaluate', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -178,24 +180,24 @@ export interface Formula {
   preset: boolean
 }
 
-export const listFormulas = () => fetch('/api/formulas').then((r) => json<Formula[]>(r))
+export const listFormulas = () => apiFetch('/api/formulas').then((r) => json<Formula[]>(r))
 
 export const createFormula = (payload: Partial<Formula> & { title: string; latex: string }) =>
-  fetch('/api/formulas', {
+  apiFetch('/api/formulas', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   }).then((r) => json<Formula>(r))
 
 export const updateFormula = (id: number, payload: Partial<Formula>) =>
-  fetch(`/api/formulas/${id}`, {
+  apiFetch(`/api/formulas/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   }).then((r) => json<Formula>(r))
 
 export const deleteFormula = (id: number) =>
-  fetch(`/api/formulas/${id}`, { method: 'DELETE' }).then((r) => json<{ status: string }>(r))
+  apiFetch(`/api/formulas/${id}`, { method: 'DELETE' }).then((r) => json<{ status: string }>(r))
 
 export interface WrongItem extends ProblemListItem {
   last_feedback: string
@@ -236,10 +238,10 @@ export interface CourseGraph {
 }
 
 export const getCourseGraph = (courseId: number) =>
-  fetch(`/api/courses/${courseId}/graph`).then((r) => json<CourseGraph>(r))
+  apiFetch(`/api/courses/${courseId}/graph`).then((r) => json<CourseGraph>(r))
 
 export const regenerateGraph = (courseId: number) =>
-  fetch(`/api/courses/${courseId}/graph`, { method: 'POST' }).then((r) =>
+  apiFetch(`/api/courses/${courseId}/graph`, { method: 'POST' }).then((r) =>
     json<{ status: string }>(r),
   )
 
@@ -251,25 +253,52 @@ async function json<T>(resp: Response): Promise<T> {
   return resp.json() as Promise<T>
 }
 
-export const listCourses = () => fetch('/api/courses').then((r) => json<Course[]>(r))
+/**
+ * 统一的请求入口：把「自带密钥」请求头附加到每个请求上。
+ *
+ * 密钥只在访问者自己的浏览器里，服务端仅按请求使用、不落库，
+ * 因此共享实例上每人用自己的额度。未填写密钥时行为与以前完全一致。
+ */
+export function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
+  const extra = credentialHeaders(loadCredentials())
+  if (Object.keys(extra).length === 0) return fetch(path, init)
+  const headers = new Headers(init.headers)
+  for (const [name, value] of Object.entries(extra)) headers.set(name, value)
+  return fetch(path, { ...init, headers })
+}
+
+/** 读取服务端运行时配置：是否已配置密钥、BYOK 头名等。 */
+export interface RuntimeConfig {
+  server_key_configured: boolean
+  server_embedding_configured: boolean
+  server_model: string
+  server_base_url: string
+  server_vision_model: string
+  byok_headers: Record<string, string>
+}
+
+export const getRuntimeConfig = () =>
+  apiFetch('/api/config').then((r) => json<RuntimeConfig>(r))
+
+export const listCourses = () => apiFetch('/api/courses').then((r) => json<Course[]>(r))
 
 export const createCourse = (name: string) =>
-  fetch('/api/courses', {
+  apiFetch('/api/courses', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name }),
   }).then((r) => json<Course>(r))
 
 export const listMaterials = (courseId: number) =>
-  fetch(`/api/courses/${courseId}/materials`).then((r) => json<Material[]>(r))
+  apiFetch(`/api/courses/${courseId}/materials`).then((r) => json<Material[]>(r))
 
 export const materialPages = (materialId: number, offset = 0, limit = 20) =>
-  fetch(`/api/materials/${materialId}/pages?offset=${offset}&limit=${limit}`).then((r) =>
+  apiFetch(`/api/materials/${materialId}/pages?offset=${offset}&limit=${limit}`).then((r) =>
     json<MaterialPages>(r),
   )
 
 export const searchCourse = (courseId: number, q: string, limit = 30) =>
-  fetch(`/api/courses/${courseId}/search?q=${encodeURIComponent(q)}&limit=${limit}`).then((r) =>
+  apiFetch(`/api/courses/${courseId}/search?q=${encodeURIComponent(q)}&limit=${limit}`).then((r) =>
     json<SearchResponse>(r),
   )
 
@@ -281,21 +310,21 @@ export async function uploadMaterial(
   const form = new FormData()
   form.append('file', file)
   form.append('kind', kind)
-  return json<Material>(await fetch(`/api/courses/${courseId}/materials`, { method: 'POST', body: form }))
+  return json<Material>(await apiFetch(`/api/courses/${courseId}/materials`, { method: 'POST', body: form }))
 }
 
 export const updateMaterialKind = (materialId: number, kind: string) =>
-  fetch(`/api/materials/${materialId}`, {
+  apiFetch(`/api/materials/${materialId}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ kind }),
   }).then((r) => json<Material>(r))
 
 export const listProblemSources = (courseId: number) =>
-  fetch(`/api/courses/${courseId}/problem-sources`).then((r) => json<ProblemSource[]>(r))
+  apiFetch(`/api/courses/${courseId}/problem-sources`).then((r) => json<ProblemSource[]>(r))
 
 export const extractProblems = (materialId: number) =>
-  fetch(`/api/materials/${materialId}/extract-problems`, { method: 'POST' }).then((r) =>
+  apiFetch(`/api/materials/${materialId}/extract-problems`, { method: 'POST' }).then((r) =>
     json<{ status: string }>(r),
   )
 
@@ -316,17 +345,17 @@ export const listProblems = (courseId: number, f: ProblemFilters = {}) => {
   if (f.q) params.set('q', f.q)
   params.set('offset', String(f.offset ?? 0))
   params.set('limit', String(f.limit ?? 100))
-  return fetch(`/api/courses/${courseId}/problems?${params}`).then((r) => json<ProblemList>(r))
+  return apiFetch(`/api/courses/${courseId}/problems?${params}`).then((r) => json<ProblemList>(r))
 }
 
 export const getProblem = (id: number) =>
-  fetch(`/api/problems/${id}`).then((r) => json<ProblemDetail>(r))
+  apiFetch(`/api/problems/${id}`).then((r) => json<ProblemDetail>(r))
 
 export const listProblemTags = (courseId: number) =>
-  fetch(`/api/courses/${courseId}/problem-tags`).then((r) => json<TagCount[]>(r))
+  apiFetch(`/api/courses/${courseId}/problem-tags`).then((r) => json<TagCount[]>(r))
 
 export const getWrongbook = (courseId: number) =>
-  fetch(`/api/courses/${courseId}/wrongbook`).then((r) => json<WrongItem[]>(r))
+  apiFetch(`/api/courses/${courseId}/wrongbook`).then((r) => json<WrongItem[]>(r))
 
 export const pageImageUrl = (materialId: number, page: number) =>
   `/api/materials/${materialId}/page-image?page=${page}`
@@ -335,7 +364,7 @@ export const problemImageUrl = (problemId: number, zoom = 2) =>
   `/api/problems/${problemId}/image?zoom=${zoom}`
 
 export const fetchHint = (problemId: number) =>
-  fetch(`/api/problems/${problemId}/hint`, { method: 'POST' }).then((r) =>
+  apiFetch(`/api/problems/${problemId}/hint`, { method: 'POST' }).then((r) =>
     json<{ hint: string }>(r),
   )
 
@@ -373,7 +402,7 @@ export async function streamChat(opts: {
   onCitations: (citations: Citation[]) => void
   onDelta: (text: string) => void
 }): Promise<void> {
-  const resp = await fetch('/api/chat', {
+  const resp = await apiFetch('/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -395,7 +424,7 @@ export async function streamGrade(opts: {
   onVerdict: (verdict: string) => void
   onDelta: (text: string) => void
 }): Promise<void> {
-  const resp = await fetch(`/api/problems/${opts.problemId}/grade`, {
+  const resp = await apiFetch(`/api/problems/${opts.problemId}/grade`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ answer: opts.answer }),
@@ -412,7 +441,7 @@ export async function streamSolution(opts: {
   onCitations: (citations: Citation[]) => void
   onDelta: (text: string) => void
 }): Promise<void> {
-  const resp = await fetch(`/api/problems/${opts.problemId}/solution`, { method: 'POST' })
+  const resp = await apiFetch(`/api/problems/${opts.problemId}/solution`, { method: 'POST' })
   await streamSSE(resp, (event, data) => {
     if (event === 'citations') opts.onCitations(JSON.parse(data))
     else if (event === 'delta') opts.onDelta(JSON.parse(data).text)
@@ -477,44 +506,44 @@ export interface ReviewStats {
 }
 
 export const getReviewStats = (courseId: number) =>
-  fetch(`/api/courses/${courseId}/review/stats`).then((r) => json<ReviewStats>(r))
+  apiFetch(`/api/courses/${courseId}/review/stats`).then((r) => json<ReviewStats>(r))
 
 // exam=true 时后端进入考试冲刺模式：包含未到期卡片并按考点热度加权排序
 export const getReviewDue = (courseId: number, limit = 100, exam = false) =>
-  fetch(`/api/courses/${courseId}/review/due?limit=${limit}${exam ? '&exam=true' : ''}`).then(
+  apiFetch(`/api/courses/${courseId}/review/due?limit=${limit}${exam ? '&exam=true' : ''}`).then(
     (r) => json<ReviewDueItem[]>(r),
   )
 
 export const getReviewCards = (courseId: number) =>
-  fetch(`/api/courses/${courseId}/review/cards`).then((r) => json<ReviewDueItem[]>(r))
+  apiFetch(`/api/courses/${courseId}/review/cards`).then((r) => json<ReviewDueItem[]>(r))
 
 // 考试冲刺模式：考试日期 + 距离天数 + 压缩节奏 + 高频考点
 export const getReviewSprint = (courseId: number) =>
-  fetch(`/api/courses/${courseId}/review/sprint`).then((r) => json<ReviewSprint>(r))
+  apiFetch(`/api/courses/${courseId}/review/sprint`).then((r) => json<ReviewSprint>(r))
 
 // examDate 传 "YYYY-MM-DD"；传 null 清除考试日期
 export const setExamDate = (courseId: number, examDate: string | null) =>
-  fetch(`/api/courses/${courseId}/exam-date`, {
+  apiFetch(`/api/courses/${courseId}/exam-date`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ exam_date: examDate }),
   }).then((r) => json<ExamDateResult>(r))
 
 export const getProblemReview = (problemId: number) =>
-  fetch(`/api/problems/${problemId}/review`).then((r) => json<ReviewCard | null>(r))
+  apiFetch(`/api/problems/${problemId}/review`).then((r) => json<ReviewCard | null>(r))
 
 export const enrollReview = (problemId: number) =>
-  fetch(`/api/problems/${problemId}/review`, { method: 'PUT' }).then((r) =>
+  apiFetch(`/api/problems/${problemId}/review`, { method: 'PUT' }).then((r) =>
     json<ReviewCard>(r),
   )
 
 export const removeReview = (problemId: number) =>
-  fetch(`/api/problems/${problemId}/review`, { method: 'DELETE' }).then((r) =>
+  apiFetch(`/api/problems/${problemId}/review`, { method: 'DELETE' }).then((r) =>
     json<{ status: string }>(r),
   )
 
 export const gradeReview = (problemId: number, quality: number) =>
-  fetch(`/api/problems/${problemId}/review/grade`, {
+  apiFetch(`/api/problems/${problemId}/review/grade`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ quality }),

@@ -14,8 +14,7 @@ from typing import Any
 
 from sqlmodel import Session, delete, select
 
-from app import db
-from app.config import settings
+from app import config, db
 from app.core import llm
 from app.models import Concept, ConceptEdge, CourseGraph, Material, Summary
 
@@ -75,7 +74,7 @@ async def _complete(system: str, user: str, max_tokens: int) -> str:
                 [{"role": "system", "content": system}, {"role": "user", "content": user}],
                 max_tokens=max_tokens,
                 timeout_s=_TIMEOUT_S,
-                model=settings.problem_model,
+                model=config.current().problem_model,
             )
         except Exception as exc:  # noqa: BLE001  重试由外层逻辑处理
             last = exc

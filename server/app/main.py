@@ -1,9 +1,11 @@
+"""FastAPI 应用装配：CORS、BYOK 中间件与路由注册。"""
+
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app import db
+from app import config, db
 from app.api import chat, compute, courses, graph, library, problems, review
 
 
@@ -14,11 +16,39 @@ async def lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title="CourseTA API", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="CourseTA API", version="0.12.0", lifespan=lifespan)
+
+
+class BYOKMiddleware:
+    """把请求头里的自带密钥挂到本次请求的上下文中（BYOK）。
+
+    用原生 ASGI 中间件而不是 BaseHTTPMiddleware：后者会包裹响应体，
+    对 SSE 流式响应不友好（可能缓冲或提前结束流）。
+    """
+
+    def __init__(self, inner) -> None:
+        self.inner = inner
+
+    async def __call__(self, scope, receive, send) -> None:
+        if scope["type"] != "http":
+            await self.inner(scope, receive, send)
+            return
+        raw = {
+            k.decode("latin-1").lower(): v.decode("latin-1") for k, v in scope.get("headers", [])
+        }
+        override = config.overrides_from_headers(raw)
+        if override.is_empty:
+            await self.inner(scope, receive, send)
+            return
+        with config.apply_overrides(override):
+            await self.inner(scope, receive, send)
+
+
+app.add_middleware(BYOKMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=config.settings.cors_origin_list,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -35,6 +65,12 @@ app.include_router(review.router, prefix="/api")
 @app.get("/api/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/api/config")
+def runtime_config() -> dict[str, object]:
+    """运行时说明：服务端是否已配置密钥，以及自带密钥用哪些请求头。"""
+    return config.describe_runtime()
 
 
 @app.get("/")

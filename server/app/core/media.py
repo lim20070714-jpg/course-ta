@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pymupdf
 
-from app.config import settings
+from app import config
 from app.core import llm
 
 # 可直接作为「一页」的图片格式
@@ -168,7 +168,7 @@ def _png_bytes(path: str | Path, max_side: int = 1600) -> bytes:
 
 async def describe_image(path: str | Path) -> str:
     """用视觉模型描述图片（中文）；未配置 VISION_MODEL 时返回空串。"""
-    if not settings.vision_model:
+    if not config.current().vision_model:
         return ""
     png = _png_bytes(path)
     b64 = base64.b64encode(png).decode("ascii")
@@ -185,7 +185,7 @@ async def describe_image(path: str | Path) -> str:
         }
     ]
     try:
-        text = await llm.complete(messages, max_tokens=700, timeout_s=180.0, model=settings.vision_model)
+        text = await llm.complete(messages, max_tokens=700, timeout_s=180.0, model=config.current().vision_model)
     except Exception as exc:  # noqa: BLE001  描述失败不影响图片入库
         return f"（图片描述失败：{type(exc).__name__}）"
     return (text or "").strip()
@@ -230,7 +230,7 @@ def image_map(raw: str) -> dict[int, str]:
 def resolve_media_path(rel: str) -> Path:
     """图片相对路径 → 绝对路径；已是绝对路径则原样返回。"""
     path = Path(rel)
-    return path if path.is_absolute() else (settings.data_dir / path)
+    return path if path.is_absolute() else (config.current().data_dir / path)
 
 
 def image_page_numbers(raw: str) -> list[int]:

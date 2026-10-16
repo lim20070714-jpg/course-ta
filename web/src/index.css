@@ -5128,3 +5128,135 @@ html[data-theme='dark'] .tab.active {
 html[data-theme='dark'] .material-zone.collapsed {
   background: color-mix(in srgb, var(--accent) 8%, var(--surface));
 }
+
+
+/* ==========================================================================
+   v0.13 设置面板：自带密钥（BYOK）
+   ========================================================================== */
+
+.topbar-settings {
+  position: relative;
+  padding: 5px 8px;
+  border-radius: 8px;
+  color: var(--text-3);
+}
+
+.topbar-settings:hover {
+  color: var(--accent);
+}
+
+.topbar-settings svg {
+  display: block;
+}
+
+/* 已配置自己的密钥时点一个小圆点，不必打开面板就能看到状态 */
+.topbar-key-dot {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--ok);
+  box-shadow: 0 0 0 2px var(--surface);
+}
+
+.settings-panel {
+  width: min(520px, 100%);
+  max-height: 82vh;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: var(--elev-3);
+  padding: 18px 20px 20px;
+  animation: dshOverlayIn var(--dur-3) var(--ease-out) both;
+}
+
+.settings-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.settings-head h2 {
+  font-size: 16px;
+  margin: 0;
+  color: var(--text);
+}
+
+.settings-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 14px;
+  padding: 8px 10px;
+  border-radius: 9px;
+  font-size: 12.5px;
+  background: var(--warn-bg);
+  color: var(--warn-text);
+  border: 1px solid var(--warn-border);
+}
+
+.settings-status.ok {
+  background: var(--accent-softer);
+  color: var(--accent-strong);
+  border-color: var(--accent-border);
+}
+
+.settings-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+.settings-field {
+  display: block;
+  margin-bottom: 12px;
+}
+
+.settings-field > span {
+  display: block;
+  font-size: 12px;
+  color: var(--text-3);
+  margin-bottom: 5px;
+}
+
+.settings-field input {
+  width: 100%;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 13px;
+}
+
+.settings-note {
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--text-3);
+  background: var(--surface-3);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin: 4px 0 16px;
+}
+
+.settings-note code {
+  font-size: 11.5px;
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+
+.settings-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.settings-actions .ghost-btn {
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+}

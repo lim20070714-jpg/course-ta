@@ -1,0 +1,14 @@
+# 构建上下文 = server/（只复制 pyproject.toml、uv.lock、app/、scripts/ 进镜像）
+.venv/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+tests/
+data/
+.env
+.env.*
+*.db
+Dockerfile
+.dockerignore

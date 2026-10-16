@@ -3,7 +3,10 @@ import type { Course } from './api'
 import { createCourse, listCourses } from './api'
 import CommandPalette from './components/CommandPalette'
 import type { Command } from './components/quickSearch'
+import SettingsPanel from './components/SettingsPanel'
 import LabPage from './components/LabPage'
+import type { LlmCredentials } from './llmKey'
+import { hasCredentials, loadCredentials } from './llmKey'
 import Bank from './sections/Bank'
 import Compute from './sections/Compute'
 import Graph from './sections/Graph'
@@ -46,6 +49,8 @@ export default function App() {
   const [libraryJump, setLibraryJump] = useState<LibraryJump | null>(null)
   const [bankJump, setBankJump] = useState<BankJump | null>(null)
   const [paletteOpen, setPaletteOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [credentials, setCredentials] = useState<LlmCredentials>(loadCredentials)
   const jumpSeq = useRef(0)
 
   const isMac =
@@ -204,6 +209,23 @@ export default function App() {
         ))}
         <div className="topbar-right">
           <button
+            className="mini ghost topbar-settings"
+            onClick={() => setSettingsOpen(true)}
+            title="设置：AI 密钥（自带密钥可不消耗部署者额度）"
+            aria-label="设置"
+          >
+            <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+              <circle cx="8" cy="8" r="2.6" fill="none" stroke="currentColor" strokeWidth="1.6" />
+              <path
+                d="M8 1.4v2M8 12.6v2M1.4 8h2M12.6 8h2M3.3 3.3l1.4 1.4M11.3 11.3l1.4 1.4M12.7 3.3l-1.4 1.4M4.7 11.3l-1.4 1.4"
+                stroke="currentColor"
+                strokeWidth="1.4"
+                strokeLinecap="round"
+              />
+            </svg>
+            {hasCredentials(credentials) && <span className="topbar-key-dot" aria-hidden="true" />}
+          </button>
+          <button
             className="mini ghost theme-toggle"
             onClick={toggleTheme}
             title={theme === 'dark' ? '切换到浅色模式' : '切换到深色模式'}
@@ -300,6 +322,13 @@ export default function App() {
 
       {paletteOpen && (
         <CommandPalette commands={commands} onClose={() => setPaletteOpen(false)} />
+      )}
+      {settingsOpen && (
+        <SettingsPanel
+          credentials={credentials}
+          onChange={setCredentials}
+          onClose={() => setSettingsOpen(false)}
+        />
       )}
     </div>
   )

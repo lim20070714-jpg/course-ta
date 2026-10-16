@@ -1,0 +1,5 @@
+# 构建上下文 = web/（在构建阶段重新 npm ci + vite build）
+node_modules/
+dist/
+Dockerfile
+.dockerignore
