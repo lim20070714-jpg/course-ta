@@ -103,3 +103,18 @@ class ConceptEdge(SQLModel, table=True):
     target_id: int = Field(index=True, foreign_key="concept.id")
     relation: str = "related"  # prerequisite | related
     note: str = ""
+
+
+class ReviewCard(SQLModel, table=True):
+    """SM-2 间隔重复卡片：一题一卡，记录调度状态。"""
+
+    id: int | None = Field(default=None, primary_key=True)
+    problem_id: int = Field(index=True, unique=True, foreign_key="problem.id")
+    course_id: int = Field(index=True, foreign_key="course.id")
+    ease: float = 2.5  # 难度系数 EF，下限 1.3
+    interval_days: float = 0.0  # 当前复习间隔（天）
+    reps: int = 0  # 连续记住次数
+    lapses: int = 0  # 累计遗忘次数
+    due_at: datetime = Field(default_factory=_now, index=True)
+    last_review_at: datetime | None = Field(default=None)
+    created_at: datetime = Field(default_factory=_now)

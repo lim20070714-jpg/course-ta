@@ -6,8 +6,9 @@ import Bank from './sections/Bank'
 import Compute from './sections/Compute'
 import Graph from './sections/Graph'
 import Library from './sections/Library'
+import Review from './sections/Review'
 
-type Tab = 'library' | 'bank' | 'compute' | 'graph' | 'lab'
+type Tab = 'library' | 'bank' | 'review' | 'compute' | 'graph' | 'lab'
 
 interface LibraryJump {
   materialId: number
@@ -24,6 +25,7 @@ interface BankJump {
 const TABS: { id: Tab; label: string }[] = [
   { id: 'library', label: '课程资料' },
   { id: 'bank', label: '题库与解答' },
+  { id: 'review', label: '复习计划' },
   { id: 'compute', label: '计算台' },
   { id: 'graph', label: '知识图谱' },
   { id: 'lab', label: '电路实验台' },
@@ -142,6 +144,16 @@ export default function App() {
       )}
       {tab === 'bank' && (
         <Bank key={activeCourseId ?? 'none'} courseId={activeCourseId} jump={bankJump} />
+      )}
+      {tab === 'review' && (
+        <Review
+          key={activeCourseId ?? 'none'}
+          courseId={activeCourseId}
+          onOpenProblem={(problemId) => {
+            setBankJump({ problemId, seq: ++jumpSeq.current })
+            setTab('bank')
+          }}
+        />
       )}
       {tab === 'compute' && <Compute />}
       {tab === 'lab' && <LabPage />}

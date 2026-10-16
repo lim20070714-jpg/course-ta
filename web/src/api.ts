@@ -410,3 +410,60 @@ export async function streamSolution(opts: {
     else if (event === 'error') throw new Error(JSON.parse(data).message)
   })
 }
+
+export interface ReviewCard {
+  problem_id: number
+  course_id: number
+  ease: number
+  interval_days: number
+  reps: number
+  lapses: number
+  due_at: string
+  last_review_at: string | null
+}
+
+export interface ReviewDueItem extends ReviewCard {
+  number: string
+  material: string
+  page: number
+  excerpt: string
+  knowledge: string[]
+}
+
+export interface ReviewStats {
+  card_count: number
+  due_now: number
+  reviewed_today: number
+  forecast: { date: string; count: number }[]
+}
+
+export const getReviewStats = (courseId: number) =>
+  fetch(`/api/courses/${courseId}/review/stats`).then((r) => json<ReviewStats>(r))
+
+export const getReviewDue = (courseId: number, limit = 100) =>
+  fetch(`/api/courses/${courseId}/review/due?limit=${limit}`).then((r) =>
+    json<ReviewDueItem[]>(r),
+  )
+
+export const getReviewCards = (courseId: number) =>
+  fetch(`/api/courses/${courseId}/review/cards`).then((r) => json<ReviewDueItem[]>(r))
+
+export const getProblemReview = (problemId: number) =>
+  fetch(`/api/problems/${problemId}/review`).then((r) => json<ReviewCard | null>(r))
+
+export const enrollReview = (problemId: number) =>
+  fetch(`/api/problems/${problemId}/review`, { method: 'PUT' }).then((r) =>
+    json<ReviewCard>(r),
+  )
+
+export const removeReview = (problemId: number) =>
+  fetch(`/api/problems/${problemId}/review`, { method: 'DELETE' }).then((r) =>
+    json<{ status: string }>(r),
+  )
+
+export const gradeReview = (problemId: number, quality: number) =>
+  fetch(`/api/problems/${problemId}/review/grade`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ quality }),
+  }).then((r) => json<ReviewCard>(r))

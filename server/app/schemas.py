@@ -217,3 +217,38 @@ class GraphRead(BaseModel):
     overview: str = ""
     nodes: list[GraphNodeRead] = []
     edges: list[GraphEdgeRead] = []
+
+
+class ReviewCardRead(BaseModel):
+    problem_id: int
+    course_id: int
+    ease: float
+    interval_days: float
+    reps: int
+    lapses: int
+    due_at: datetime
+    last_review_at: datetime | None = None
+
+
+class ReviewDueItem(ReviewCardRead):
+    number: str = ""
+    material: str = ""
+    page: int = 0
+    excerpt: str = ""
+    knowledge: list[str] = []
+
+
+class ReviewGradeRequest(BaseModel):
+    quality: int  # 0-5，<3 视为遗忘
+
+
+class ReviewDayCount(BaseModel):
+    date: str  # ISO 日期
+    count: int
+
+
+class ReviewStatsRead(BaseModel):
+    card_count: int
+    due_now: int
+    reviewed_today: int
+    forecast: list[ReviewDayCount] = []

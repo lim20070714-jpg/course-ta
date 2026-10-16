@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app import db
-from app.api import chat, compute, courses, graph, library, problems
+from app.api import chat, compute, courses, graph, library, problems, review
 
 
 @asynccontextmanager
@@ -29,6 +29,7 @@ app.include_router(library.router, prefix="/api")
 app.include_router(problems.router, prefix="/api")
 app.include_router(compute.router, prefix="/api")
 app.include_router(graph.router, prefix="/api")
+app.include_router(review.router, prefix="/api")
 
 
 @app.get("/api/health")

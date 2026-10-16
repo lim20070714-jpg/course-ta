@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { Citation, ProblemDetail, ProblemListItem, ProblemSource, TagCount, WrongItem } from '../api'
+import type { Citation, ProblemDetail, ProblemListItem, ProblemSource, ReviewCard, TagCount, WrongItem } from '../api'
 import {
+  enrollReview,
   extractProblems,
   fetchHint,
   getProblem,
+  getProblemReview,
   getWrongbook,
   listProblemSources,
   listProblemTags,
@@ -11,6 +13,7 @@ import {
   materialKindLabel,
   pageImageUrl,
   problemImageUrl,
+  removeReview,
   streamGrade,
   streamSolution,
 } from '../api'
@@ -65,6 +68,7 @@ export default function Bank({
   const [solving, setSolving] = useState(false)
   const [solutionText, setSolutionText] = useState('')
   const [solutionCitations, setSolutionCitations] = useState<Citation[]>([])
+  const [review, setReview] = useState<ReviewCard | null>(null)
   const historyRef = useRef<HTMLDetailsElement>(null)
 
   const hasRunning = sources.some((s) => s.job_status === 'running')
@@ -133,6 +137,10 @@ export default function Bank({
 
   const openProblem = useCallback((id: number) => {
     setNotice('')
+    setReview(null)
+    getProblemReview(id)
+      .then(setReview)
+      .catch(() => undefined)
     getProblem(id)
       .then((d) => {
         setCurrent(d)
@@ -235,6 +243,21 @@ export default function Bank({
       setNotice((e as Error).message)
     } finally {
       setSolving(false)
+    }
+  }
+
+  async function toggleReview() {
+    if (!current) return
+    try {
+      if (review) {
+        await removeReview(current.id)
+        setReview(null)
+      } else {
+        setReview(await enrollReview(current.id))
+        setNotice('')
+      }
+    } catch (e) {
+      setNotice((e as Error).message)
     }
   }
 
@@ -347,6 +370,19 @@ export default function Bank({
                   <span className="prob-src-slim">{current.material}</span>
                 </h2>
                 <div className="reader-nav">
+                  {review ? (
+                    <button
+                      className="mini ghost"
+                      onClick={toggleReview}
+                      title={`下次复习 ${new Date(review.due_at).toLocaleDateString()} · 已连对 ${review.reps} 次`}
+                    >
+                      已在复习计划 · 移出
+                    </button>
+                  ) : (
+                    <button className="mini" onClick={toggleReview}>
+                      加入复习计划
+                    </button>
+                  )}
                   <button className="mini ghost" onClick={() => setShowImage((v) => !v)}>
                     {showImage ? '收起原题图' : '查看原题图'}
                   </button>
