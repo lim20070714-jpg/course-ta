@@ -1,12 +1,12 @@
 from pathlib import Path
 
-import pymupdf
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response
 from sqlalchemy import func
 from sqlmodel import Session, select
 
 from app import db
+from app.core import media
 from app.core import summary as summary_core
 from app.core.pages import merge_page_chunks, snippet_around
 from app.core.store import search_text
@@ -63,20 +63,33 @@ def material_page_image(
     page: int = Query(1, ge=1),
     zoom: float = Query(2.0, ge=0.5, le=4.0),
 ) -> Response:
-    """把 PDF 的某一页渲染为 PNG，用于查看电路图等一图胜千言的内容。"""
+    """材料某一页的原页图。
+
+    - 图片材料 / 文档内嵌图片：直接返回该图片文件；
+    - PDF：按页渲染为 PNG（用于查看电路图等一图胜千言的内容）。
+    """
     with Session(db.engine) as session:
         material = session.get(Material, material_id)
         if material is None:
             raise HTTPException(404, "材料不存在")
         path, filename = material.stored_path, material.filename
+        image = media.image_map(material.pages).get(page)
+    if image is not None:
+        if not Path(image).exists():
+            raise HTTPException(404, "该页图片文件已丢失，请重新上传材料")
+        return FileResponse(
+            image,
+            media_type=media.media_type_for(image),
+            headers={"Cache-Control": "public, max-age=3600"},
+        )
     if Path(path).suffix.lower() != ".pdf":
-        raise HTTPException(400, f"{filename} 不是 PDF，暂不支持页图渲染")
-    with pymupdf.open(path) as doc:
-        if page > doc.page_count:
-            raise HTTPException(404, f"页码超出范围（共 {doc.page_count} 页）")
-        pix = doc[page - 1].get_pixmap(matrix=pymupdf.Matrix(zoom, zoom))
+        raise HTTPException(400, f"{filename} 不是 PDF，且该页没有图片")
+    try:
+        content = media.render_page_png(path, page, zoom)
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
     return Response(
-        content=pix.tobytes("png"),
+        content=content,
         media_type="image/png",
         headers={"Cache-Control": "public, max-age=3600"},
     )

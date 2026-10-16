@@ -34,10 +34,12 @@ class MaterialRead(BaseModel):
     id: int
     course_id: int
     filename: str
-    kind: str = "other"  # textbook | slides | handout | exam | other
+    kind: str = "other"  # textbook | slides | handout | exam | image | other
     status: str
     error: str
     chunk_count: int
+    page_count: int = 0  # 含图片页的总页数
+    image_pages: list[int] = []  # 可以直接看原页图的页码
 
 
 class MaterialKindUpdate(BaseModel):

@@ -2,19 +2,41 @@ import time
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Form, HTTPException, UploadFile
+from sqlalchemy import func
 from sqlmodel import Session, select
 
 from app import db
 from app.config import settings
+from app.core import media
 from app.core import problems as problems_core
 from app.core.ingest import ingest_material
 from app.core.kinds import VALID_KINDS, detect_kind
-from app.models import Course, Material
+from app.models import Chunk, Course, Material
 from app.schemas import CourseCreate, CourseRead, MaterialKindUpdate, MaterialRead
 
 router = APIRouter(tags=["courses"])
 
-SUPPORTED_SUFFIXES = {".pdf", ".pptx", ".txt", ".md"}
+SUPPORTED_SUFFIXES = {".pdf", ".pptx", ".docx", ".txt", ".md"} | media.IMAGE_SUFFIXES
+_FORMAT_HINT = "PDF / PPTX / DOCX / TXT / MD / 图片（PNG / JPG / WEBP / GIF / BMP / TIFF）"
+
+
+def material_read(material: Material, text_pages: int = 0) -> MaterialRead:
+    """把 Material 转成对外模型，附上总页数与可查看原页图的页码。
+
+    `text_pages` 为该材料的最大页码（来自 Chunk），用于图文混排时得到正确总页数。
+    """
+    image_pages = media.image_page_numbers(material.pages)
+    return MaterialRead(
+        id=material.id,
+        course_id=material.course_id,
+        filename=material.filename,
+        kind=material.kind,
+        status=material.status,
+        error=material.error,
+        chunk_count=material.chunk_count,
+        page_count=max(text_pages, max(image_pages, default=0)),
+        image_pages=image_pages,
+    )
 
 
 @router.post("/courses", response_model=CourseRead)
@@ -37,13 +59,19 @@ def list_courses() -> list[Course]:
 
 
 @router.get("/courses/{course_id}/materials", response_model=list[MaterialRead])
-def list_materials(course_id: int) -> list[Material]:
+def list_materials(course_id: int) -> list[MaterialRead]:
     with Session(db.engine) as session:
-        return list(
+        rows = session.exec(
+            select(Material).where(Material.course_id == course_id).order_by(Material.id)
+        ).all()
+        max_pages = dict(
             session.exec(
-                select(Material).where(Material.course_id == course_id).order_by(Material.id)
+                select(Chunk.material_id, func.max(Chunk.page))
+                .where(Chunk.course_id == course_id)
+                .group_by(Chunk.material_id)
             ).all()
         )
+        return [material_read(m, max_pages.get(m.id, 0) or 0) for m in rows]
 
 
 @router.post("/courses/{course_id}/materials", response_model=MaterialRead)
@@ -52,11 +80,11 @@ async def upload_material(
     file: UploadFile,
     background_tasks: BackgroundTasks,
     kind: str = Form("auto"),
-) -> Material:
+) -> MaterialRead:
     filename = Path(file.filename or "untitled").name  # 防路径穿越
     suffix = Path(filename).suffix.lower()
     if suffix not in SUPPORTED_SUFFIXES:
-        raise HTTPException(400, f"暂不支持 {suffix or '该'} 类型，请上传 PDF / PPTX / TXT / MD")
+        raise HTTPException(400, f"暂不支持 {suffix or '该'} 类型，请上传 {_FORMAT_HINT}")
     if kind != "auto" and kind not in VALID_KINDS:
         raise HTTPException(400, f"未知材料类型：{kind}")
     resolved_kind = detect_kind(filename) if kind == "auto" else kind
@@ -81,7 +109,7 @@ async def upload_material(
     background_tasks.add_task(ingest_material, material.id)
     if resolved_kind == "exam":  # 试题入库后自动切割题目（不做知识总结）
         background_tasks.add_task(problems_core.run_extraction, material.id)
-    return material
+    return material_read(material)
 
 
 @router.patch("/materials/{material_id}", response_model=MaterialRead)

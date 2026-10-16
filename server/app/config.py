@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     llm_base_url: str = "https://api.deepseek.com/v1"
     llm_model: str = "deepseek-chat"
     extract_model: str = ""  # 题目抽取可单独指定更强的模型；留空则用 llm_model
+    vision_model: str = ""  # 图片描述专用视觉模型；留空则跳过图片描述（不影响上传与查看）
 
     embedding_api_key: str = ""
     embedding_base_url: str = ""

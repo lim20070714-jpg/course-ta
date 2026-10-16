@@ -11,6 +11,8 @@ export interface Material {
   status: string
   error: string
   chunk_count: number
+  page_count?: number
+  image_pages?: number[]
 }
 
 export const KIND_LABELS: Record<string, string> = {
@@ -18,10 +20,17 @@ export const KIND_LABELS: Record<string, string> = {
   slides: '课件',
   handout: '讲义',
   exam: '试题',
+  image: '图片',
   other: '其他',
 }
 
 export const materialKindLabel = (kind: string) => KIND_LABELS[kind] ?? kind
+
+// 与后端 SUPPORTED_SUFFIXES 保持一致的上传格式（含 Word 与图片）
+export const MATERIAL_ACCEPT = '.pdf,.pptx,.docx,.txt,.md,.png,.jpg,.jpeg,.webp,.gif,.bmp,.tif,.tiff'
+
+// 上传区展示用的可读格式说明
+export const MATERIAL_FORMAT_HINT = 'PDF / PPTX / Word / TXT / MD / 图片'
 
 export interface Citation {
   material_id: number

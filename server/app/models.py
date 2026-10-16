@@ -20,10 +20,13 @@ class Material(SQLModel, table=True):
     course_id: int = Field(index=True, foreign_key="course.id")
     filename: str
     stored_path: str
-    kind: str = "other"  # textbook 教材 | slides 课件 | handout 讲义 | exam 试题 | other 其他
+    kind: str = "other"  # textbook | slides | handout | exam | image | other
     status: str = "pending"  # pending | ingesting | ready | failed
     error: str = ""
     chunk_count: int = 0
+    # 图片页：JSON 数组 [{"page": 3, "path": "media/12/docx/image-003.png"}]，
+    # path 相对 data_dir；非图片材料为空数组
+    pages: str = "[]"
     created_at: datetime = Field(default_factory=_now)
 
 

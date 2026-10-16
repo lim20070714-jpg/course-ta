@@ -17,6 +17,7 @@ dependencies = [
     "pymupdf>=1.28.2",
     "antlr4-python3-runtime>=4.11,<4.12",
     "lark>=1.2",
+    "python-docx>=1.2.0",
 ]
 
 [dependency-groups]

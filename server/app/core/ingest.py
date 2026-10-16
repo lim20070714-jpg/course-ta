@@ -1,4 +1,5 @@
 import asyncio
+import json
 import re
 import unicodedata
 from pathlib import Path
@@ -9,7 +10,7 @@ from sqlmodel import Session, delete
 
 from app import db
 from app.config import settings
-from app.core import llm, summary
+from app.core import llm, media, summary
 from app.core.glyph_tables import (
     GLITCH_CHAR_MAP,
     GLITCH_DROP,
@@ -17,6 +18,7 @@ from app.core.glyph_tables import (
     WINGDING2_MAP,
     WINGDING_MAP,
 )
+from app.core.kinds import SUMMARY_KINDS
 from app.core.store import to_blob
 from app.models import Chunk, Material
 
@@ -53,18 +55,84 @@ _REPAIR_SYSTEM = (
 
 
 def extract_pages(path: str | Path) -> list[tuple[int, str]]:
-    """提取文档每一页/每张幻灯片的文本，返回 [(页码, 文本), ...]。"""
+    """提取文档每一页/每张幻灯片/每张图片的文本，返回 [(页码, 文本), ...]。"""
     p = Path(path)
     suffix = p.suffix.lower()
     if suffix == ".pdf":
         return [(i, text) for i, text, _score in _extract_pdf(p)]
     if suffix == ".pptx":
         return _extract_pptx(p)
+    if suffix == ".docx":
+        return extract_docx_pages(p)
+    if suffix in media.IMAGE_SUFFIXES:
+        return [(1, "")]  # 图片本身即第 1 页，正文来自视觉描述
     if suffix in (".txt", ".md"):
         return [(1, p.read_text(encoding="utf-8", errors="ignore"))]
-    if suffix == ".ppt":
-        raise ValueError("旧版 .ppt 不受支持，请另存为 .pptx 后重新上传")
+    if suffix in (".ppt", ".doc"):
+        raise ValueError(f"旧版 {suffix} 不受支持，请另存为 {suffix}x 后重新上传")
     raise ValueError(f"不支持的文件类型: {suffix}")
+
+
+def extract_docx_pages(path: str | Path) -> list[tuple[int, str]]:
+    """按段落抽取 .docx 正文（标题/列表保留 Markdown 结构，表格转竖线行）。"""
+    text, _images = media.extract_docx_body(path)
+    return [(1, text)]
+
+
+async def ingest_pages(
+    path: str | Path, material_id: int, describe: bool = True
+) -> tuple[list[tuple[int, str]], list[tuple[int, str]]]:
+    """解析材料，返回 (文字页, 图片页)。
+
+    - 文字页：`[(页码, 文本)]`，照旧入库并向量化。
+    - 图片页：`[(页码, 图片文件相对路径)]`，页图直接返回该文件；
+      若 `describe=True` 且配置了视觉模型，图片描述会作为该页正文一起返回。
+
+    页码统一连续编号，保证「点击知识点跳原页」在图文混排时依然对得上。
+    """
+    p = Path(path)
+    suffix = p.suffix.lower()
+    pages: list[tuple[int, str]] = []
+    images: list[tuple[int, str]] = []
+
+    if suffix == ".docx" or suffix == ".pptx":
+        body = extract_docx_pages(p) if suffix == ".docx" else _extract_pptx(p)
+        pages = [(page_no, text) for page_no, text in body]
+        dirsuffix = "docx" if suffix == ".docx" else "pptx"
+        target_dir = media.media_dir(settings.data_dir, material_id) / dirsuffix
+        blobs = _embedded_images(p, suffix)
+        for index, image_path in enumerate(media.write_images(blobs, target_dir), start=1):
+            page_no = len(pages) + index
+            rel = f"media/{material_id}/{dirsuffix}/{image_path.name}"
+            images.append((page_no, rel))
+            if describe and settings.vision_model:
+                desc = await media.describe_image(image_path)
+                text = media.description_text(desc, index) if desc else ""
+                if text:
+                    pages.append((page_no, text))
+    elif suffix in media.IMAGE_SUFFIXES:
+        images.append((1, str(p)))
+    else:
+        pages = extract_pages(p)
+
+    pages.sort(key=lambda item: item[0])
+    images.sort(key=lambda item: item[0])
+    return pages, images
+
+
+def _embedded_images(path: Path, suffix: str) -> list[bytes]:
+    """取出 .docx / .pptx 内嵌图片的字节。"""
+    if suffix == ".docx":
+        _text, blobs = media.extract_docx_body(path)
+        return blobs
+    prs = Presentation(str(path))
+    blobs: list[bytes] = []
+    for slide in prs.slides:
+        for shape in slide.shapes:
+            image = getattr(shape, "image", None)
+            if image is not None:
+                blobs.append(image.blob)
+    return blobs
 
 
 def _font_family(name: str, codes: set[int]) -> str:
@@ -349,16 +417,18 @@ async def ingest_material(material_id: int, repair: bool = True) -> None:
         session.commit()
         try:
             path = Path(material.stored_path)
-            if path.suffix.lower() == ".pdf":
-                scored = _extract_pdf(path)
-            else:
-                scored = [(page_no, text, 0) for page_no, text in extract_pages(path)]
-            pages = await _repair_pages(scored, material.filename) if repair else [
-                (page_no, text) for page_no, text, _score in scored
-            ]
+            text_pages, image_pages = await ingest_pages(path, material_id)
+            if path.suffix.lower() in (".docx", ".pptx") and text_pages == []:
+                raise ValueError("未从文件中提取到任何文字（图片已单独保存，可在原页图中查看）")
+            scored = [(page_no, text, 0) for page_no, text in text_pages]
+            pages = await _repair_pages(scored, material.filename) if repair else text_pages
             chunks = chunk_pages(pages)
             if not chunks:
                 raise ValueError("未从文件中提取到文本内容（扫描版 PDF 需要先做 OCR）")
+            material.pages = json.dumps(
+                [{"page": page_no, "path": rel} for page_no, rel in image_pages],
+                ensure_ascii=False,
+            )
             vectors: list[list[float]] = []
             for i in range(0, len(chunks), _EMBED_BATCH):
                 batch = [c["text"] for c in chunks[i : i + _EMBED_BATCH]]
@@ -383,7 +453,7 @@ async def ingest_material(material_id: int, repair: bool = True) -> None:
             material.error = (str(exc) or type(exc).__name__)[:500]
         session.add(material)
         session.commit()
-        if material.status == "ready" and material.kind != "exam":  # 试题不做知识总结
+        if material.status == "ready" and material.kind in SUMMARY_KINDS:  # 试题不做知识总结
             try:
                 await summary.generate_summary(material_id)
             except Exception:  # noqa: BLE001 总结失败不影响材料入库

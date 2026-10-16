@@ -36,6 +36,15 @@ def _ensure_course_exam_date() -> None:
         conn.exec_driver_sql("ALTER TABLE course ADD COLUMN exam_date DATETIME")
 
 
+def _ensure_material_pages() -> None:
+    """给旧库补 Material.pages 列（图片页清单）；默认空数组。"""
+    with engine.begin() as conn:
+        cols = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(material)")}
+        if "pages" in cols:
+            return
+        conn.exec_driver_sql("ALTER TABLE material ADD COLUMN pages VARCHAR NOT NULL DEFAULT '[]'")
+
+
 def init_db() -> None:
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     import app.models  # noqa: F401  导入以注册表结构
@@ -43,3 +52,4 @@ def init_db() -> None:
     SQLModel.metadata.create_all(engine)
     _ensure_material_kind()
     _ensure_course_exam_date()
+    _ensure_material_pages()
