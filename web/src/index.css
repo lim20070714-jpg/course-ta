@@ -28,9 +28,28 @@
   --danger-bg: #fdf1f0;
   --ok: #2e6b34;
   --ok-text: #2e6b34;
-  --shadow-a: var(--shadow-a);
-  --shadow-b: var(--shadow-b);
-  --shadow-c: var(--shadow-c);
+  /* 阴影色：这些 token 只提供颜色，几何（偏移/模糊）由各自规则给出。
+     注意：早期版本这里误写成自引用（--shadow-a: var(--shadow-a)），
+     属于 CSS 循环，会让浅色主题下所有 box-shadow 失效；现已修正。 */
+  --shadow-a: rgba(23, 32, 56, 0.08);
+  --shadow-b: rgba(23, 32, 56, 0.12);
+  --shadow-c: rgba(23, 32, 56, 0.18);
+
+  /* ===== 动效系统 ===== */
+  /* 时长：快交互 120ms / 常规 200ms / 强调 320ms / 大面积入场 480ms */
+  --dur-1: 120ms;
+  --dur-2: 200ms;
+  --dur-3: 320ms;
+  --dur-4: 480ms;
+  /* 缓动：进入用减速、离开用加速、弹性用于强调元素 */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  /* 阴影层级：e1 贴近表面、e2 悬浮卡片、e3 浮层/弹窗 */
+  --elev-1: 0 1px 2px var(--shadow-a), 0 1px 3px var(--shadow-a);
+  --elev-2: 0 2px 6px var(--shadow-a), 0 8px 20px var(--shadow-b);
+  --elev-3: 0 8px 24px var(--shadow-b), 0 24px 56px var(--shadow-c);
+  --focus-ring: 0 0 0 3px var(--accent-soft);
 
   /* 示波器屏幕（两种主题下均为仪器暗屏） */
   --scope-bg: #0d1420;
@@ -77,6 +96,11 @@
   --shadow-a: rgba(0, 0, 0, 0.5);
   --shadow-b: rgba(0, 0, 0, 0.38);
   --shadow-c: rgba(0, 0, 0, 0.3);
+  /* 深色下阴影要更重、更黑，否则浮层与背景糊在一起 */
+  --elev-1: 0 1px 2px var(--shadow-a);
+  --elev-2: 0 2px 8px var(--shadow-b), 0 8px 24px var(--shadow-a);
+  --elev-3: 0 10px 30px var(--shadow-c), 0 28px 64px var(--shadow-b);
+  --focus-ring: 0 0 0 3px rgba(138, 166, 242, 0.28);
 }
 
 html {
@@ -2944,20 +2968,25 @@ button.mini.danger:hover {
 }
 
 body {
-  transition: background-color 0.25s ease, color 0.25s ease;
+  transition: background-color var(--dur-3) var(--ease-out), color var(--dur-3) var(--ease-out);
 }
 
 .topbar {
-  transition: background-color 0.25s ease, border-color 0.25s ease;
+  transition: background-color var(--dur-3) var(--ease-out),
+    border-color var(--dur-3) var(--ease-out), box-shadow var(--dur-2) var(--ease-out);
 }
 
 button {
-  transition: background-color 0.18s ease, color 0.18s ease, border-color 0.18s ease,
-    box-shadow 0.18s ease, transform 0.12s ease;
+  /* 动画 background-color / border-color 这些具体属性，不要用 background / border 简写：
+     简写会连带重绘渐变或改变渲染路径，是"卡顿"的常见来源 */
+  transition: background-color var(--dur-2) var(--ease-out), color var(--dur-2) var(--ease-out),
+    border-color var(--dur-2) var(--ease-out), box-shadow var(--dur-2) var(--ease-out),
+    transform var(--dur-1) var(--ease-out);
 }
 
 button:active:not(:disabled) {
   transform: scale(0.97);
+  transition-duration: 60ms;
 }
 
 .review-progress-fill {
@@ -3648,3 +3677,1352 @@ button.zone-empty:hover:not(:disabled) {
     display: none;
   }
 }
+
+
+/* ==========================================================================
+   v0.11 设计系统升级：动效、层次与细节
+   原则：动效服务于"看清发生了什么"，不是装饰。
+   - 只用 transform / opacity 做动画（合成层，不触发布局重排）
+   - 时长与缓动统一走 --dur-* / --ease-* token
+   - 所有过渡在 prefers-reduced-motion 下自动降级（见上方已有的全局重置）
+   ========================================================================== */
+
+/* ---------- 入场动画 ---------- */
+
+@keyframes dshFadeUp {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 10px, 0);
+  }
+}
+
+@keyframes dshFadeIn {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes dshOverlayIn {
+  from {
+    opacity: 0;
+    transform: translate3d(0, -6px, 0) scale(0.985);
+  }
+}
+
+@keyframes dshPopIn {
+  0% {
+    opacity: 0;
+    transform: scale(0.88);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.03);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes dshShimmer {
+  to {
+    background-position: 200% 0;
+  }
+}
+
+@keyframes dshSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 列表逐项入场：在元素上设 --i 序号即可，最多错开 12 项避免长列表拖沓 */
+.stagger-item {
+  animation: dshFadeUp var(--dur-3) var(--ease-out) both;
+  animation-delay: calc(min(var(--i, 0), 12) * 22ms);
+}
+
+/* ---------- 可交互表面的"抬起"反馈 ---------- */
+
+.lift {
+  transition: transform var(--dur-2) var(--ease-out), box-shadow var(--dur-2) var(--ease-out),
+    border-color var(--dur-2) var(--ease-out);
+}
+
+.lift:hover {
+  transform: translate3d(0, -2px, 0);
+  box-shadow: var(--elev-2);
+}
+
+.lift:active {
+  transform: translate3d(0, 0, 0);
+  transition-duration: 60ms;
+}
+
+/* 斜向掠光：鼠标经过时一道高光扫过，用于主按钮 */
+@keyframes dshSheen {
+  from {
+    transform: translateX(-120%) skewX(-18deg);
+  }
+  to {
+    transform: translateX(220%) skewX(-18deg);
+  }
+}
+
+.sheen {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.sheen::after {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 42%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, #ffffff 42%, transparent),
+    transparent
+  );
+  opacity: 0;
+  pointer-events: none;
+}
+
+.sheen:hover::after {
+  opacity: 1;
+  animation: dshSheen 760ms var(--ease-out);
+}
+
+/* ---------- 统一焦点环（键盘可达性） ---------- */
+
+:where(button, a, input, select, textarea, [tabindex]):focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-radius: 8px;
+}
+
+/* ---------- 滚动条：细、圆、悬浮才明显 ---------- */
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background-clip: content-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
+  background-clip: content-box;
+}
+
+/* ---------- 选中文本与文档级细节 ---------- */
+
+::selection {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+html {
+  scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* ---------- 既有组件的层次与过渡补强 ---------- */
+
+.prob-card,
+.compute-card,
+.schematic-card,
+.plot-card,
+.review-card,
+.sprint-panel,
+.upload-panel {
+  box-shadow: var(--elev-1);
+  transition: box-shadow var(--dur-2) var(--ease-out), border-color var(--dur-2) var(--ease-out),
+    transform var(--dur-2) var(--ease-out);
+}
+
+.prob-card:hover,
+.compute-card:hover {
+  box-shadow: var(--elev-2);
+}
+
+.sidebar {
+  box-shadow: var(--elev-1);
+  transition: transform var(--dur-3) var(--ease-out), box-shadow var(--dur-3) var(--ease-out),
+    background-color var(--dur-2) var(--ease-out);
+}
+
+/* 复习行 / 材料行：悬浮时轻微右移，给出"可点"的暗示 */
+.review-row {
+  transition: background-color var(--dur-2) var(--ease-out),
+    transform var(--dur-2) var(--ease-out), box-shadow var(--dur-2) var(--ease-out);
+}
+
+.review-row:hover {
+  transform: translate3d(2px, 0, 0);
+  box-shadow: var(--elev-1);
+}
+
+/* 徽章与标签：颜色过渡更顺 */
+.kind-badge,
+.tag,
+.chip,
+.graph-post-chip {
+  transition: background-color var(--dur-2) var(--ease-out),
+    border-color var(--dur-2) var(--ease-out), color var(--dur-2) var(--ease-out);
+}
+
+/* 进度条 / 滑块的填充过渡 */
+.review-progress-fill,
+.review-bar,
+.progress-fill {
+  transition: width var(--dur-3) var(--ease-out), height var(--dur-3) var(--ease-out);
+}
+
+/* ---------- 载入中的骨架屏 ---------- */
+
+.skeleton {
+  background: linear-gradient(
+    100deg,
+    var(--surface-2) 30%,
+    var(--surface-3) 50%,
+    var(--surface-2) 70%
+  );
+  background-size: 200% 100%;
+  animation: dshShimmer 1.4s var(--ease-in-out) infinite;
+  border-radius: 8px;
+  color: transparent;
+}
+
+/* ---------- 命令面板（⌘/Ctrl + K） ---------- */
+
+.cmdk-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: color-mix(in srgb, #0b1020 48%, transparent);
+  backdrop-filter: blur(6px);
+  animation: dshFadeIn var(--dur-2) var(--ease-out) both;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 12vh 16px 16px;
+}
+
+.cmdk {
+  width: min(620px, 100%);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: var(--elev-3);
+  overflow: hidden;
+  animation: dshOverlayIn var(--dur-3) var(--ease-out) both;
+  display: flex;
+  flex-direction: column;
+  max-height: 68vh;
+}
+
+.cmdk-input {
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 15px;
+  padding: 16px 18px;
+  width: 100%;
+  border-bottom: 1px solid var(--border);
+}
+
+.cmdk-input::placeholder {
+  color: var(--muted);
+}
+
+.cmdk-list {
+  overflow-y: auto;
+  padding: 6px;
+  margin: 0;
+  list-style: none;
+}
+
+.cmdk-group {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 10px 12px 4px;
+}
+
+.cmdk-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 12px;
+  border-radius: 10px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--dur-1) var(--ease-out);
+}
+
+.cmdk-item[aria-selected='true'] {
+  background: var(--accent-softer);
+  color: var(--accent-strong);
+}
+
+.cmdk-item-hint {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.cmdk-empty {
+  padding: 24px 16px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.cmdk-foot {
+  display: flex;
+  gap: 14px;
+  padding: 9px 14px;
+  border-top: 1px solid var(--border);
+  background: var(--surface-3);
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.cmdk-kbd {
+  display: inline-block;
+  min-width: 18px;
+  padding: 1px 5px;
+  border: 1px solid var(--border-strong);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  background: var(--surface);
+  font-size: 10px;
+  font-family: inherit;
+  text-align: center;
+}
+
+.topbar-kbd {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 10px;
+}
+
+
+/* ==========================================================================
+   v0.11 外壳与列表精修（顶栏、分区标签、通知、材料列表）
+   ========================================================================== */
+
+/* 顶栏：极细高光 + 滚动时更清晰的层次 */
+.topbar {
+  position: relative;
+  backdrop-filter: saturate(1.05);
+}
+
+.topbar::after {
+  content: '';
+  position: absolute;
+  inset: auto 0 -1px 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent-border), transparent);
+  opacity: 0;
+  transition: opacity var(--dur-3) var(--ease-out);
+}
+
+.topbar:hover::after {
+  opacity: 0.7;
+}
+
+/* 分区标签：激活态用柔和底色 + 轻微上浮，不是硬切 */
+.tab {
+  position: relative;
+  transition: background-color var(--dur-2) var(--ease-out),
+    color var(--dur-2) var(--ease-out), transform var(--dur-1) var(--ease-out);
+}
+
+.tab:hover:not(:disabled) {
+  transform: translate3d(0, -1px, 0);
+}
+
+.tab.active {
+  box-shadow: inset 0 0 0 1px var(--accent-border), var(--elev-1);
+  animation: dshPopIn 260ms var(--ease-out) both;
+}
+
+.tab:active:not(:disabled) {
+  transform: translate3d(0, 0, 0) scale(0.97);
+}
+
+/* 顶栏里的搜索入口 */
+.topbar-search {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: 10px;
+  color: var(--text-3);
+}
+
+.topbar-search:hover {
+  color: var(--text);
+}
+
+/* 通知条：滑入 + 柔和阴影，不再突兀地出现 */
+.notice {
+  animation: dshFadeUp var(--dur-3) var(--ease-out) both;
+  box-shadow: var(--elev-1);
+}
+
+/* 材料列表逐项入场（相对动画名，避免覆盖 dshFadeUp 的用法差异） */
+.material-list > li {
+  animation: materialRowIn var(--dur-3) var(--ease-out) both;
+  animation-delay: calc(min(var(--i, 0), 14) * 18ms);
+}
+
+@keyframes materialRowIn {
+  from {
+    opacity: 0;
+    transform: translate3d(-6px, 0, 0);
+  }
+}
+
+.material-list > li {
+  transition: background-color var(--dur-2) var(--ease-out),
+    transform var(--dur-2) var(--ease-out), box-shadow var(--dur-2) var(--ease-out);
+}
+
+.material-list > li:hover {
+  transform: translate3d(2px, 0, 0);
+  box-shadow: var(--elev-1);
+}
+
+/* 课程选择器与新建输入：焦点时更明确 */
+.course-select,
+.course-new {
+  transition: border-color var(--dur-2) var(--ease-out), box-shadow var(--dur-2) var(--ease-out);
+}
+
+.course-select:focus-visible,
+.course-new:focus-visible {
+  border-color: var(--accent-ring);
+  box-shadow: var(--focus-ring);
+}
+
+/* 深色模式下顶栏高光稍弱，避免发光感 */
+html[data-theme='dark'] .topbar:hover::after {
+  opacity: 0.45;
+}
+
+html[data-theme='dark'] .tab.active {
+  box-shadow: inset 0 0 0 1px var(--accent-border), 0 1px 2px var(--shadow-a);
+}
+
+/* 顶栏搜索触发器：图标 + 快捷键，紧凑不抢视线 */
+.topbar-search {
+  padding: 5px 8px;
+  border-radius: 8px;
+  color: var(--text-3);
+}
+
+.topbar-search svg {
+  display: block;
+}
+
+.topbar-search:hover {
+  color: var(--accent);
+}
+
+.topbar-search .topbar-kbd {
+  margin-left: 2px;
+}
+
+/* ==========================================================================
+   v0.11 图谱精修（graph-polish）
+   只新增，不改动上方任何既有规则；新类名统一 graph- / gk- 前缀。
+   - 视窗过渡由组件用 rAF 插值完成（单值状态 + memo 子组件），
+     这里只负责「状态本身」切换时的缓动与层次。
+   - 新动画只碰 transform / opacity，避免逐帧布局。
+   ========================================================================== */
+
+.graph-canvas {
+  position: relative;
+}
+
+/* ---------- 边与概念胶囊：状态切换缓入缓出，选中时轻微抬起 ---------- */
+
+.graph-edge {
+  transition: opacity var(--dur-3) var(--ease-out), stroke var(--dur-2) var(--ease-out),
+    stroke-width var(--dur-2) var(--ease-out);
+}
+
+/* 箭头改用主题 token：深色下不再是一根突兀的浅灰/深蓝 */
+.graph-arrow {
+  fill: var(--border-strong);
+}
+
+.graph-arrow-active {
+  fill: var(--accent);
+}
+
+.graph-pill {
+  transition: opacity var(--dur-3) var(--ease-out), transform var(--dur-2) var(--ease-spring);
+}
+
+.graph-pill.active {
+  transform: translate3d(0, -2px, 0);
+}
+
+/* 胶囊底色走 --surface（深色模式下不再是白块），描边保留模块色 */
+.graph-pill-card {
+  fill: var(--surface);
+  stroke-width: 1.4;
+  transition: stroke-width var(--dur-2) var(--ease-out), fill var(--dur-2) var(--ease-out),
+    stroke var(--dur-2) var(--ease-out);
+}
+
+.graph-pill:hover .graph-pill-card {
+  stroke-width: 2;
+}
+
+.graph-pill.active .graph-pill-card {
+  stroke-width: 2.4;
+}
+
+/* 选中概念的模块色淡染：随选中状态淡入淡出，而不是硬切 */
+.graph-pill-tint {
+  pointer-events: none;
+  transition: opacity var(--dur-2) var(--ease-out);
+}
+
+/* 选中光环：弹入一次，之后留作柔和的强调圈（hover/active 下都保持整圈） */
+.graph-pill-halo {
+  fill: none;
+  stroke-width: 5;
+  stroke-opacity: 0.2;
+  pointer-events: none;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: dshPopIn var(--dur-3) var(--ease-spring) both;
+}
+
+.graph-pill .graph-pill-halo,
+.graph-pill:hover .graph-pill-halo,
+.graph-pill.active .graph-pill-halo {
+  stroke-width: 5;
+}
+
+/* 题目提示点跟着主题走 */
+.graph-problem-dot {
+  stroke: var(--surface) !important;
+}
+
+/* ---------- 模块签：展开/收起一眼可分 ---------- */
+
+.graph-chip {
+  transition: opacity var(--dur-3) var(--ease-out);
+}
+
+.graph-chip:hover {
+  filter: drop-shadow(0 3px 8px var(--shadow-b));
+}
+
+.graph-chip.collapsed rect {
+  stroke: var(--surface);
+  stroke-width: 2;
+  stroke-dasharray: 5 4;
+}
+
+.graph-chip-caret {
+  font-size: 11px;
+  fill: rgba(255, 255, 255, 0.9);
+  pointer-events: none;
+  user-select: none;
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: transform var(--dur-2) var(--ease-out);
+}
+
+.graph-chip-caret.open {
+  transform: rotate(90deg);
+}
+
+/* ---------- 层级目录：箭头旋转、题目徽章、逐项入场 ---------- */
+
+.graph-tree-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.graph-caret {
+  display: inline-block;
+  line-height: 1;
+  transition: transform var(--dur-2) var(--ease-out);
+}
+
+.graph-caret.open {
+  transform: rotate(90deg);
+}
+
+.graph-tree-problems {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  font-size: 11px;
+  color: var(--warn-text);
+  background: var(--warn-bg);
+  border-radius: 6px;
+}
+
+.graph-tree-concepts {
+  animation: dshFadeUp var(--dur-2) var(--ease-out) both;
+}
+
+/* ---------- 聚焦模式：浮层徽标 + 工具栏开关 ---------- */
+
+.graph-focus-bar {
+  position: absolute;
+  left: 16px;
+  bottom: 16px;
+  z-index: 12;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(72%, 560px);
+  padding: 8px 12px;
+  border: 1px solid var(--accent-border);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--elev-2);
+  font-size: 12px;
+  color: var(--text-2);
+  animation: dshFadeUp var(--dur-3) var(--ease-out) both;
+}
+
+.graph-focus-dot {
+  flex-shrink: 0;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+
+.graph-focus-text {
+  flex-shrink: 0;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.graph-focus-meta {
+  flex: 1;
+  min-width: 0;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.graph-focus-toggle[aria-pressed='true'],
+.graph-detail-actions .mini.active {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  box-shadow: inset 0 0 0 1px var(--accent-border);
+}
+
+/* ---------- 学习顺序遍历：工具栏里的 ‹ 12/221 › ---------- */
+
+.graph-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-2);
+}
+
+.graph-step .mini {
+  padding: 2px 6px;
+  line-height: 1;
+}
+
+.graph-step-pos {
+  min-width: 74px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 详情面板：面包屑 + 滑入 + 前后翻概念 ---------- */
+
+@keyframes gkPanelIn {
+  from {
+    opacity: 0;
+    transform: translate3d(12px, 0, 0);
+  }
+}
+
+.graph-detail {
+  animation: gkPanelIn var(--dur-3) var(--ease-out) both;
+}
+
+.graph-crumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  font-size: 11px;
+  color: var(--muted);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.graph-crumb > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.graph-crumb-now {
+  color: var(--text-2);
+}
+
+.graph-crumb-sep {
+  flex-shrink: 0;
+  color: var(--border-strong);
+}
+
+.graph-detail-step {
+  margin: -4px 0 6px;
+}
+
+.graph-detail-pos {
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.graph-detail-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.graph-detail-nav .mini {
+  flex: 1;
+}
+
+.graph-detail-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* ---------- 载入 / 生成中：骨架屏与转圈 ---------- */
+
+.graph-loading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 0 4px;
+}
+
+.graph-loading-center {
+  justify-content: center;
+}
+
+.graph-loading-text {
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+.graph-spinner {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid var(--border-strong);
+  border-top-color: var(--accent);
+  animation: dshSpin 720ms linear infinite;
+}
+
+.graph-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  margin-top: 10px;
+}
+
+.graph-skel-row {
+  height: 20px;
+  animation-delay: calc(var(--i, 0) * 90ms);
+}
+
+.graph-skel-row:nth-child(3n) {
+  width: 82%;
+}
+
+.graph-skel-row:nth-child(4n) {
+  width: 64%;
+}
+
+.graph-skel-canvas {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  width: 100%;
+  margin-top: 26px;
+}
+
+.graph-skel-line {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  animation: dshFadeUp var(--dur-3) var(--ease-out) both;
+  animation-delay: calc(var(--i, 0) * 60ms);
+}
+
+.graph-skel-chip {
+  flex-shrink: 0;
+  width: 116px;
+  height: 28px;
+}
+
+.graph-skel-pill {
+  height: 32px;
+  flex-shrink: 0;
+}
+
+/* ---------- 空状态：有意图，不是一片空白 ---------- */
+
+.graph-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.graph-empty-mark {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  margin-bottom: 2px;
+  border: 1px solid var(--accent-border);
+  border-radius: 50%;
+  background: var(--accent-softer);
+  box-shadow: var(--elev-1);
+  color: var(--accent-strong);
+  font-size: 24px;
+  line-height: 1;
+  animation: dshPopIn var(--dur-4) var(--ease-spring) both;
+}
+
+.graph-empty h2 {
+  margin: 0;
+}
+
+@media (max-width: 900px) {
+  .graph-focus-bar {
+    left: 10px;
+    bottom: 10px;
+    max-width: min(88%, 420px);
+  }
+
+  .graph-step-pos {
+    min-width: 58px;
+  }
+}
+
+@media (max-width: 720px) {
+  .graph-focus-bar {
+    bottom: 10px;
+    right: 10px;
+  }
+}
+
+/* ==========================================================================
+   v0.11 实验台 / 计算台精修（lab-polish）
+   仅新增 .lab-* / .cmp-* 类，并为既有组件追加补充规则（不改动上方任何既有规则）。
+   动效统一走 --dur-* / --ease-*，减少动效时由文件上方的全局重置兜底。
+   ========================================================================== */
+
+/* ---------- 实验台：标头、面板与数值排版 ---------- */
+
+.lab-fade {
+  animation: dshFadeIn var(--dur-3) var(--ease-out) both;
+}
+
+.lab-head-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.lab-badge {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-border);
+  border-radius: 999px;
+  padding: 2px 9px;
+}
+
+.lab-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.lab-panel-title {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--text-3);
+}
+
+.lab-sub {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.lab-kbd-tip {
+  margin: 2px 0 0;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+.lab-flash {
+  margin: 0;
+  min-height: 15px;
+  font-size: 11.5px;
+  color: var(--ok-text);
+  transition: opacity var(--dur-2) var(--ease-out);
+}
+
+.lab-readouts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* 原理图面板：轻微渐变 + 投影，和右侧“屏幕”拉开层次；数值标注跟随主题色 */
+.lab-schematic {
+  background: linear-gradient(180deg, var(--surface) 0%, var(--surface-3) 100%);
+  box-shadow: var(--elev-1);
+}
+
+.lab-schematic svg {
+  filter: drop-shadow(0 1px 0 var(--shadow-a));
+}
+
+.sliders {
+  box-shadow: var(--elev-1);
+}
+
+.sliders .lab-panel-head {
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.readout {
+  box-shadow: var(--elev-1);
+}
+
+.readout-label {
+  letter-spacing: 0.02em;
+}
+
+/* 读数与滑块数值用等宽数字：数值变化时不会左右抖动 */
+.readout-value,
+.slider-value,
+.slider-foot {
+  font-variant-numeric: tabular-nums;
+}
+
+.slider-label {
+  color: var(--text-2);
+}
+
+.slider-value {
+  font-family: 'JetBrains Mono', 'Cascadia Code', Consolas, monospace;
+  color: var(--accent);
+}
+
+.slider-foot {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10.5px;
+  color: var(--muted);
+}
+
+.slider-scale {
+  color: var(--muted);
+}
+
+/* ---------- 滑块：自绘轨道（填充比例由组件的 --lab-fill 给出） ---------- */
+
+.lab-page .slider-row input[type='range'] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 20px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.lab-page .slider-row input[type='range']::-webkit-slider-runnable-track {
+  height: 5px;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    var(--accent) 0 var(--lab-fill, 0%),
+    var(--border-strong) var(--lab-fill, 0%) 100%
+  );
+}
+
+.lab-page .slider-row input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 15px;
+  height: 15px;
+  margin-top: -5px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 2px solid var(--accent);
+  box-shadow: var(--elev-1);
+  transition: transform var(--dur-2) var(--ease-spring);
+}
+
+.lab-page .slider-row input[type='range']:hover::-webkit-slider-thumb,
+.lab-page .slider-row input[type='range']:active::-webkit-slider-thumb {
+  transform: scale(1.15);
+}
+
+.lab-page .slider-row input[type='range']::-moz-range-track {
+  height: 5px;
+  border-radius: 999px;
+  background: var(--border-strong);
+}
+
+.lab-page .slider-row input[type='range']::-moz-range-progress {
+  height: 5px;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+.lab-page .slider-row input[type='range']::-moz-range-thumb {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 2px solid var(--accent);
+}
+
+/* ---------- 示波器：外壳、图例、游标读数 ---------- */
+
+.plot-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.plot-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.plot-actions .mini.on {
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
+  color: var(--accent-strong);
+}
+
+.plot-screen {
+  stroke: color-mix(in srgb, var(--scope-axis) 42%, transparent);
+  stroke-width: 1;
+}
+
+.plot-card svg:focus-visible {
+  outline: none;
+  border-radius: 12px;
+  box-shadow: var(--focus-ring);
+}
+
+.plot-trace {
+  opacity: 1;
+  transition: opacity var(--dur-2) var(--ease-out);
+}
+
+.plot-trace.off {
+  opacity: 0;
+}
+
+.plot-card .legend {
+  padding: 2px 8px 4px;
+  gap: 8px 14px;
+}
+
+.plot-card .legend .legend-item {
+  gap: 6px;
+  padding: 3px 7px;
+  font-size: 12px;
+  border: 1px solid transparent;
+  transition: background-color var(--dur-2) var(--ease-out), color var(--dur-2) var(--ease-out),
+    border-color var(--dur-2) var(--ease-out), opacity var(--dur-2) var(--ease-out);
+}
+
+.plot-card .legend .legend-item.off {
+  opacity: 0.5;
+  text-decoration: line-through;
+}
+
+.plot-card .legend .legend-item.off .legend-dot {
+  filter: grayscale(1);
+}
+
+.plot-cursor-read {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 18px;
+  margin: 2px 8px 4px;
+  padding: 7px 10px;
+  border: 1px solid var(--accent-border);
+  border-radius: 10px;
+  background: var(--accent-softer);
+  color: var(--text-2);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  animation: dshFadeUp var(--dur-2) var(--ease-out) both;
+}
+
+.pcr-head {
+  font-weight: 600;
+  color: var(--accent-strong);
+}
+
+.pcr-sub {
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.pcr-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pcr-row b {
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* ---------- 自由搭建：分析面板与状态条 ---------- */
+
+.builder-analysis .builder-tab-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  animation: dshFadeIn var(--dur-2) var(--ease-out) both;
+}
+
+.builder-tabs .tab {
+  transition: background-color var(--dur-2) var(--ease-out), color var(--dur-2) var(--ease-out),
+    border-color var(--dur-2) var(--ease-out), box-shadow var(--dur-2) var(--ease-out);
+}
+
+.builder-tabs .tab.active {
+  box-shadow: var(--elev-1);
+}
+
+.builder-palette .palette-btn {
+  transition: background-color var(--dur-2) var(--ease-out), color var(--dur-2) var(--ease-out),
+    border-color var(--dur-2) var(--ease-out), box-shadow var(--dur-2) var(--ease-out),
+    transform var(--dur-1) var(--ease-out);
+}
+
+.builder-palette .palette-btn:hover {
+  transform: translate3d(0, -1px, 0);
+  box-shadow: var(--elev-1);
+}
+
+.builder-palette .palette-btn[aria-pressed='true'] {
+  box-shadow: inset 0 0 0 1px var(--accent-border);
+}
+
+.builder-status {
+  line-height: 1.6;
+}
+
+.builder-inspector {
+  box-shadow: var(--elev-1);
+}
+
+/* ---------- 计算台：输入 / 结果 / 公式库 ---------- */
+
+.cmp-preview {
+  animation: dshFadeIn var(--dur-2) var(--ease-out) both;
+}
+
+.cmp-editor {
+  animation: dshFadeUp var(--dur-2) var(--ease-out) both;
+}
+
+.cmp-count {
+  margin-left: 6px;
+  font-size: 10.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.chip.active .cmp-count {
+  color: color-mix(in srgb, #ffffff 78%, transparent);
+}
+
+.cmp-cat {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 400;
+}
+
+.cmp-item {
+  transition: transform var(--dur-2) var(--ease-out), box-shadow var(--dur-2) var(--ease-out),
+    border-color var(--dur-2) var(--ease-out);
+}
+
+.cmp-item:hover {
+  transform: translate3d(0, -1px, 0);
+  box-shadow: var(--elev-2);
+}
+
+.cmp-result-card {
+  min-height: 104px;
+}
+
+.cmp-result-in {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  animation: dshFadeUp var(--dur-3) var(--ease-out) both;
+}
+
+.cmp-plain {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.cmp-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  flex-wrap: wrap;
+}
+
+.cmp-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.cmp-run-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.cmp-run-wrap .compute-run {
+  margin-left: 0;
+}
+
+.cmp-kbd-hint {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.cmp-spin {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin-right: 6px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, #ffffff 55%, transparent);
+  border-top-color: transparent;
+  animation: dshSpin 640ms linear infinite;
+  vertical-align: -1px;
+}
+
+.cmp-busy {
+  opacity: 0.9;
+}
+
+/* 窄屏：动作按钮不再挤在同一行 */
+@media (max-width: 720px) {
+  .cmp-actions,
+  .cmp-run-wrap {
+    margin-left: 0;
+  }
+
+  .compute-run {
+    width: 100%;
+  }
+}
+
+/* ===== v0.11 图谱精修（补充）：减少动效时去掉错峰延迟 =====
+   全局 reduced-motion 重置只归零了 animation-duration，没有归零 animation-delay，
+   .stagger-item 与骨架屏仍会先"隐身"最多 ~270ms。这里只补这一刀。 */
+@media (prefers-reduced-motion: reduce) {
+  .stagger-item,
+  .graph-skel-row,
+  .graph-skel-line {
+    animation-delay: 0ms !important;
+  }
+}
+
+

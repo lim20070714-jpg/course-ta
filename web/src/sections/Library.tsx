@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
   ChatTurn,
@@ -475,8 +476,8 @@ export default function Library({
               </div>
               {zone.materials.length > 0 ? (
                 <ul className="material-list">
-                  {zone.materials.map((m) => (
-                    <li key={m.id}>
+                  {zone.materials.map((m, index) => (
+                    <li key={m.id} style={{ '--i': index } as CSSProperties}>
                       <button
                         className={current?.id === m.id ? 'material-item active' : 'material-item'}
                         title={m.error || m.filename}

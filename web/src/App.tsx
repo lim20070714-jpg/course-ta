@@ -1,6 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Course } from './api'
 import { createCourse, listCourses } from './api'
+import CommandPalette from './components/CommandPalette'
+import type { Command } from './components/quickSearch'
 import LabPage from './components/LabPage'
 import Bank from './sections/Bank'
 import Compute from './sections/Compute'
@@ -43,7 +45,12 @@ export default function App() {
   const [notice, setNotice] = useState('')
   const [libraryJump, setLibraryJump] = useState<LibraryJump | null>(null)
   const [bankJump, setBankJump] = useState<BankJump | null>(null)
+  const [paletteOpen, setPaletteOpen] = useState(false)
   const jumpSeq = useRef(0)
+
+  const isMac =
+    typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || '')
+  const modKey = isMac ? '⌘' : 'Ctrl'
 
   useEffect(() => {
     listCourses()
@@ -78,10 +85,110 @@ export default function App() {
       return next
     })
 
+  function goTab(id: Tab) {
+    setTab(id)
+    setLibraryJump(null)
+    setBankJump(null)
+  }
+
+  const commands = useMemo<Command[]>(() => {
+    const list: Command[] = TABS.map((t, index) => ({
+      id: `tab:${t.id}`,
+      label: t.label,
+      group: '前往',
+      hint: `${modKey}+${index + 1}`,
+      keywords: [t.id],
+      run: () => goTab(t.id),
+    }))
+    for (const c of courses) {
+      list.push({
+        id: `course:${c.id}`,
+        label: `切换到课程：${c.name}`,
+        group: '课程',
+        hint: c.id === activeCourseId ? '当前' : undefined,
+        keywords: [c.name, 'course', '切换'],
+        run: () => setActiveCourseId(c.id),
+      })
+    }
+    list.push(
+      {
+        id: 'action:new-course',
+        label: '新建课程',
+        group: '操作',
+        keywords: ['create', 'xinjian', '添加'],
+        run: () => setCreating(true),
+      },
+      {
+        id: 'action:theme',
+        label: theme === 'dark' ? '切换到浅色模式' : '切换到深色模式',
+        group: '操作',
+        keywords: ['theme', 'dark', 'light', '主题', '深色', '浅色'],
+        run: toggleTheme,
+      },
+      {
+        id: 'action:review',
+        label: '开始复习 / 考试冲刺',
+        group: '操作',
+        keywords: ['review', 'fuxi', '冲刺', '考试', '复习计划'],
+        run: () => goTab('review'),
+      },
+      {
+        id: 'action:layout',
+        label: '到「课程资料」上传材料（PDF / Word / 图片）',
+        group: '操作',
+        keywords: ['upload', 'shangchuan', '材料', '上传', 'docx', '图片'],
+        run: () => goTab('library'),
+      },
+    )
+    return list
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [courses, activeCourseId, theme, modKey])
+
+  // ⌘/Ctrl+K 打开命令面板；⌘/Ctrl+1..6 直接切分区
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey)) return
+      if (e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        setPaletteOpen((v) => !v)
+        return
+      }
+      const digit = Number(e.key)
+      if (digit >= 1 && digit <= TABS.length) {
+        e.preventDefault()
+        const target = TABS[digit - 1]
+        setTab(target.id)
+        setLibraryJump(null)
+        setBankJump(null)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
   return (
     <div className="app-shell">
       <nav className="topbar">
         <span className="brand-mini">CourseTA</span>
+        <button
+          type="button"
+          className="mini ghost topbar-search"
+          onClick={() => setPaletteOpen(true)}
+          title={`搜索功能、课程与操作（${modKey}+K）`}
+          aria-label="搜索功能、课程与操作"
+        >
+          <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+            <circle cx="6.8" cy="6.8" r="4.6" fill="none" stroke="currentColor" strokeWidth="1.6" />
+            <path
+              d="M10.4 10.4 14 14"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+            />
+          </svg>
+          <span className="topbar-kbd">{modKey} K</span>
+        </button>
         {TABS.map((t) => (
           <button
             key={t.id}
@@ -189,6 +296,10 @@ export default function App() {
             setTab('bank')
           }}
         />
+      )}
+
+      {paletteOpen && (
+        <CommandPalette commands={commands} onClose={() => setPaletteOpen(false)} />
       )}
     </div>
   )

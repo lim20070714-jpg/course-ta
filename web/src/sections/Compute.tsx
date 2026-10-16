@@ -41,8 +41,10 @@ export default function Compute() {
   const [newKind, setNewKind] = useState('real')
 
   const [result, setResult] = useState<ComputeResult | null>(null)
+  const [resultSeq, setResultSeq] = useState(0)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [copied, setCopied] = useState('')
   const exprRef = useRef<HTMLTextAreaElement>(null)
 
   const needs = opNeeds(op)
@@ -56,6 +58,12 @@ export default function Compute() {
   const categories = useMemo(() => {
     const used = new Set(formulas.map((f) => f.category))
     return ['全部', ...CATEGORIES.filter((c) => used.has(c) || c === '自定义')]
+  }, [formulas])
+
+  const counts = useMemo(() => {
+    const map = new Map<string, number>([['全部', formulas.length]])
+    for (const f of formulas) map.set(f.category, (map.get(f.category) ?? 0) + 1)
+    return map
   }, [formulas])
 
   const shown = useMemo(
@@ -78,6 +86,20 @@ export default function Compute() {
     })
   }
 
+  async function copy(text: string, tag: string) {
+    if (!navigator.clipboard) {
+      setNotice('当前环境不支持剪贴板，请手动选择文本复制')
+      return
+    }
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(tag)
+      window.setTimeout(() => setCopied(''), 1400)
+    } catch {
+      setNotice('复制失败：浏览器拒绝了剪贴板访问，请手动选择文本')
+    }
+  }
+
   async function run() {
     const input = expr.trim()
     if (!input) {
@@ -98,7 +120,9 @@ export default function Compute() {
         order,
         symbols,
       }
-      setResult(await evaluateCompute(payload))
+      const next = await evaluateCompute(payload)
+      setResult(next)
+      setResultSeq((n) => n + 1)
     } catch (e) {
       setError((e as Error).message)
     } finally {
@@ -165,31 +189,41 @@ export default function Compute() {
             ＋ 新建
           </button>
         </div>
-        <div className="chip-row">
+        <div className="chip-row" role="group" aria-label="按分类筛选公式">
           {categories.map((c) => (
             <button
               key={c}
               className={category === c ? 'chip active' : 'chip'}
+              aria-pressed={category === c}
               onClick={() => setCategory(c)}
             >
               {c}
+              <span className="cmp-count">{counts.get(c) ?? 0}</span>
             </button>
           ))}
         </div>
         {draft && (
-          <div className="formula-editor">
+          <div
+            className="formula-editor cmp-editor"
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') setDraft(null)
+            }}
+          >
             <input
               placeholder="标题，如：分部积分"
+              aria-label="公式标题"
               value={draft.title}
               onChange={(e) => setDraft({ ...draft, title: e.target.value })}
             />
             <textarea
               rows={3}
               placeholder="公式内容（LaTeX），如：\int u\,dv = uv - \int v\,du"
+              aria-label="公式内容 LaTeX"
               value={draft.latex}
               onChange={(e) => setDraft({ ...draft, latex: e.target.value })}
             />
             <select
+              aria-label="公式分类"
               value={draft.category}
               onChange={(e) => setDraft({ ...draft, category: e.target.value })}
             >
@@ -201,6 +235,7 @@ export default function Compute() {
             </select>
             <input
               placeholder="备注（可选）"
+              aria-label="公式备注"
               value={draft.note}
               onChange={(e) => setDraft({ ...draft, note: e.target.value })}
             />
@@ -208,19 +243,29 @@ export default function Compute() {
               <button className="mini" onClick={saveDraft}>
                 {draft.id === null ? '添加' : '保存修改'}
               </button>
-              <button className="mini ghost" onClick={() => setDraft(null)}>
+              <button className="mini ghost" onClick={() => setDraft(null)} title="Esc 也可取消">
                 取消
               </button>
             </div>
           </div>
         )}
         <ul className="formula-list">
-          {shown.map((f) => (
-            <li key={f.id} className="formula-item">
-              <button className="formula-insert" title="插入到输入框" onClick={() => insert(f.latex)}>
+          {shown.map((f, i) => (
+            <li
+              key={f.id}
+              className="formula-item cmp-item stagger-item"
+              style={{ '--i': Math.min(i, 12) } as React.CSSProperties}
+            >
+              <button
+                className="formula-insert"
+                title="插入到输入框"
+                aria-label={`插入公式 ${f.title}`}
+                onClick={() => insert(f.latex)}
+              >
                 <span className="formula-title">
                   {f.title}
                   {f.preset && <span className="formula-badge">预置</span>}
+                  {category === '全部' && <span className="cmp-cat">{f.category}</span>}
                 </span>
                 <span className="formula-preview">
                   <RichText text={toPreviewTex(f.latex)} />
@@ -257,7 +302,11 @@ export default function Compute() {
       </aside>
 
       <main className="compute-main">
-        {notice && <div className="lib-notice">{notice}</div>}
+        {notice && (
+          <div className="lib-notice" role="alert">
+            {notice}
+          </div>
+        )}
         <div className="compute-card">
           <div className="compute-input-head">
             <span className="compute-hint">
@@ -270,6 +319,8 @@ export default function Compute() {
             ref={exprRef}
             className="compute-expr"
             rows={3}
+            aria-label="表达式输入"
+            spellCheck={false}
             placeholder="输入函数或表达式，如：e^{-x^2}、\frac{\sin x}{x}、\int_0^{+\infty} e^{-x^2} dx"
             value={expr}
             onChange={(e) => setExpr(e.target.value)}
@@ -296,8 +347,8 @@ export default function Compute() {
               ))}
           </div>
           {expr.trim() && (
-            <div className="compute-preview">
-              <span className="preview-label">预览</span>
+            <div className="compute-preview cmp-preview">
+              <span className="preview-label">实时预览</span>
               <RichText text={toPreviewTex(expr)} />
             </div>
           )}
@@ -365,32 +416,69 @@ export default function Compute() {
                 />
               </label>
             )}
-            <button className="compute-run" onClick={run} disabled={busy}>
-              {busy ? '计算中…' : '计算'}
-            </button>
+            <span className="cmp-run-wrap">
+              <button
+                className={busy ? 'compute-run cmp-busy' : 'compute-run'}
+                onClick={run}
+                disabled={busy}
+                aria-busy={busy}
+                title="Ctrl / ⌘ + Enter 可直接计算"
+              >
+                {busy && <span className="cmp-spin" aria-hidden="true" />}
+                {busy ? '计算中…' : '计算'}
+              </button>
+              <span className="cmp-kbd-hint">Ctrl/⌘ + ↵</span>
+            </span>
           </div>
         </div>
 
-        <div className="compute-card">
-          {error && <p className="compute-error">{error}</p>}
-          {!error && !result && <p className="compute-empty">结果会显示在这里（KaTeX 渲染）。</p>}
+        <div className="compute-card cmp-result-card">
+          {error && (
+            <p className="compute-error cmp-error" role="alert">
+              <span aria-hidden="true">⚠</span> {error}
+            </p>
+          )}
+          {!error && !result && (
+            <p className="compute-empty">结果会显示在这里（KaTeX 渲染）。输入后按 Ctrl/⌘ + ↵ 计算。</p>
+          )}
           {result && (
-            <>
+            <div className="cmp-result-in stagger-item" key={resultSeq}>
               <div className="result-label">结果</div>
               <div className="compute-result">
                 <RichText text={`$$${result.latex}$$`} />
               </div>
               <div className="result-meta">
-                <code>{result.plain}</code>
-                {result.approx && <code title="数值近似">≈ {result.approx}</code>}
-                <button
-                  className="mini ghost"
-                  onClick={() => navigator.clipboard?.writeText(result.latex)}
-                >
-                  复制 LaTeX
-                </button>
+                <code className="cmp-plain" title="纯文本形式">
+                  {result.plain}
+                </code>
+                {result.approx && (
+                  <code title="数值近似">≈ {result.approx}</code>
+                )}
+                <span className="cmp-actions">
+                  <button
+                    className="mini ghost"
+                    onClick={() => copy(result.latex, 'latex')}
+                    title="复制可直接粘贴到 Markdown / LaTeX 的公式源码"
+                  >
+                    {copied === 'latex' ? '已复制 ✓' : '复制 LaTeX'}
+                  </button>
+                  <button
+                    className="mini ghost"
+                    onClick={() => copy(result.plain, 'plain')}
+                    title="复制纯文本结果"
+                  >
+                    {copied === 'plain' ? '已复制 ✓' : '复制结果'}
+                  </button>
+                  <button
+                    className="mini"
+                    onClick={() => setExpr(result.plain)}
+                    title="把结果放回输入框，便于继续化简 / 求导 / 变换"
+                  >
+                    ↗ 作为输入
+                  </button>
+                </span>
               </div>
-            </>
+            </div>
           )}
         </div>
       </main>
@@ -401,10 +489,11 @@ export default function Compute() {
           {'可自定义符号及其类型，例如把 a 设为正数后，√(a²) 会自动化简为 a，而不是 |a|。'}
         </p>
         <ul className="symbol-list">
-          {symbols.map((s) => (
-            <li key={s.name}>
+          {symbols.map((s, i) => (
+            <li key={s.name} className="stagger-item" style={{ '--i': i } as React.CSSProperties}>
               <span className="mono">{s.name}</span>
               <select
+                aria-label={`${s.name} 的类型`}
                 value={s.kind}
                 onChange={(e) =>
                   setSymbols((ss) =>
@@ -420,6 +509,7 @@ export default function Compute() {
               </select>
               <button
                 className="link danger"
+                aria-label={`删除符号 ${s.name}`}
                 onClick={() => setSymbols((ss) => ss.filter((x) => x.name !== s.name))}
               >
                 删除
@@ -431,11 +521,12 @@ export default function Compute() {
         <div className="symbol-add">
           <input
             placeholder="符号名，如 a、alpha"
+            aria-label="新符号名"
             value={newSymbol}
             onChange={(e) => setNewSymbol(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && addSymbol()}
           />
-          <select value={newKind} onChange={(e) => setNewKind(e.target.value)}>
+          <select aria-label="新符号类型" value={newKind} onChange={(e) => setNewKind(e.target.value)}>
             {SYMBOL_KINDS.map((k) => (
               <option key={k.id} value={k.id}>
                 {k.label}

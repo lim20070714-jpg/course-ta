@@ -1,7 +1,37 @@
-/** 预置实验的简化电路图（IEC 符号）。数值由滑块驱动，图中只画拓扑与元件名。 */
+/** 预置实验的简化电路图（IEC 符号）。数值由滑块驱动，图中标注元件名与当前参数值。 */
+
+import { createContext, useContext } from 'react'
+import { formatSi } from '../labs/labs'
 
 const STROKE = 'currentColor'
 const LABEL = 'currentColor'
+
+/** 图上元件名 → 参数 (key, 单位)：把滑块当前值直接标在原理图上 */
+const LABEL_VALUE: Record<string, Record<string, [string, string]>> = {
+  divider: { 'V₁': ['vin', 'V'], 'R₁': ['r1', 'Ω'], 'R₂': ['r2', 'Ω'] },
+  rc: { 'V₁': ['v', 'V'], 'R₁': ['r', 'Ω'], 'C₁': ['c', 'F'] },
+  'rc-lowpass': { 'R₁': ['r', 'Ω'], 'C₁': ['c', 'F'] },
+  'square-rc': { 'R₁': ['r', 'Ω'], 'C₁': ['c', 'F'] },
+  rl: { 'V₁': ['v', 'V'], 'R₁': ['r', 'Ω'], 'L₁': ['l', 'H'] },
+  rlc: { 'R₁': ['r', 'Ω'], 'L₁': ['l', 'H'], 'C₁': ['c', 'F'] },
+  'rlc-step': { 'R₁': ['r', 'Ω'], 'L₁': ['l', 'H'], 'C₁': ['c', 'F'] },
+  'sallen-key': { 'R₁': ['r', 'Ω'], 'R₂': ['r', 'Ω'], 'C₁': ['c1', 'F'], 'C₂': ['c2', 'F'] },
+}
+
+function makeAnnotator(labId: string, params?: Record<string, number>): (text: string) => string {
+  const map = LABEL_VALUE[labId]
+  if (!params || !map) return (text: string) => text
+  return (text: string) => {
+    const ent = map[text]
+    if (!ent) return text
+    const v = params[ent[0]]
+    if (v === undefined || !Number.isFinite(v)) return text
+    return `${text} ${formatSi(v, ent[1])}`
+  }
+}
+
+/** 标注函数通过 context 下发，所有文字最终都经过 Lbl，因此只需在这里接一次 */
+const AnnCtx = createContext<(text: string) => string>((text) => text)
 
 function Wire({ d, flow = false }: { d: string; flow?: boolean }) {
   return (
@@ -36,9 +66,10 @@ function Lbl({
   text: string
   anchor?: 'start' | 'middle' | 'end'
 }) {
+  const ann = useContext(AnnCtx)
   return (
     <text x={x} y={y} fontSize={12} fill={LABEL} textAnchor={anchor}>
-      {text}
+      {ann(text)}
     </text>
   )
 }
@@ -156,9 +187,23 @@ function OpAmp({ x, y, label }: { x: number; y: number; label: string }) {
   )
 }
 
-function Svg({ children }: { children: React.ReactNode }) {
+function Svg({
+  children,
+  ariaLabel,
+  vbWidth = 280,
+}: {
+  children: React.ReactNode
+  ariaLabel: string
+  /** 右侧标注带当前参数值后会更宽，按需放宽画布，避免被裁切 */
+  vbWidth?: number
+}) {
   return (
-    <svg viewBox="0 0 280 185" style={{ width: '100%', maxWidth: 330 }}>
+    <svg
+      viewBox={`0 0 ${vbWidth} 185`}
+      role="img"
+      aria-label={ariaLabel}
+      style={{ width: '100%', maxWidth: 330 }}
+    >
       {children}
     </svg>
   )
@@ -166,7 +211,7 @@ function Svg({ children }: { children: React.ReactNode }) {
 
 function DividerSchematic() {
   return (
-    <Svg>
+    <Svg ariaLabel="电阻分压器原理图：电源 V₁ 经 R₁、R₂ 串联分压，输出 v_out 取自 R₂ 两端">
       <Wire d="M60 72 L60 34 L160 34 L160 44" flow />
       <Wire d="M160 132 L160 146 L60 146 L60 98" flow />
       <Wire d="M160 76 L160 100" />
@@ -184,7 +229,7 @@ function DividerSchematic() {
 
 function RcSchematic() {
   return (
-    <Svg>
+    <Svg ariaLabel="RC 电路原理图：V₁ 经 R₁ 给 C₁ 充电，v_C 为电容两端电压">
       <Wire d="M60 72 L60 34 L160 34 L160 44" flow />
       <Wire d="M160 146 L60 146 L60 98" flow />
       <Wire d="M160 76 L160 98" />
@@ -203,7 +248,7 @@ function RcSchematic() {
 
 function RlSchematic() {
   return (
-    <Svg>
+    <Svg ariaLabel="RL 电路原理图：V₁ 经 R₁ 给 L₁ 建立电流">
       <Wire d="M60 72 L60 34 L160 34 L160 44" flow />
       <Wire d="M160 132 L160 146 L60 146 L60 98" flow />
       <Wire d="M160 76 L160 100" />
@@ -217,7 +262,7 @@ function RlSchematic() {
 
 function RlcSchematic() {
   return (
-    <Svg>
+    <Svg ariaLabel="串联 RLC 电路原理图：V₁、R₁、L₁、C₁ 串联，v_C 为电容两端电压">
       <Wire d="M50 72 L50 40 L240 40" flow />
       <Wire d="M240 150 L50 150 L50 98" flow />
       <Wire d="M240 40 L240 88" />
@@ -237,7 +282,10 @@ function RlcSchematic() {
 
 function SallenSchematic() {
   return (
-    <Svg>
+    <Svg
+      ariaLabel="Sallen-Key 有源低通原理图：两级 RC 网络接理想运放电压跟随器，输出 v_out"
+      vbWidth={300}
+    >
       <Wire d="M56 72 L56 34 L92 34" flow />
       <Wire d="M56 109 L56 148" />
       <VSource x={56} y={96} label="V₁" />
@@ -265,11 +313,23 @@ function SallenSchematic() {
   )
 }
 
-export default function Schematic({ labId }: { labId: string }) {
-  if (labId === 'divider') return <DividerSchematic />
-  if (labId === 'rc' || labId === 'rc-lowpass' || labId === 'square-rc') return <RcSchematic />
-  if (labId === 'rl') return <RlSchematic />
-  if (labId === 'rlc' || labId === 'rlc-step') return <RlcSchematic />
-  if (labId === 'sallen-key') return <SallenSchematic />
-  return null
+export default function Schematic({
+  labId,
+  params,
+}: {
+  labId: string
+  /** 当前参数值：用于把滑块值直接标在元件旁边（不传则只显示元件名） */
+  params?: Record<string, number>
+}) {
+  const ann = makeAnnotator(labId, params)
+  const body = (() => {
+    if (labId === 'divider') return <DividerSchematic />
+    if (labId === 'rc' || labId === 'rc-lowpass' || labId === 'square-rc') return <RcSchematic />
+    if (labId === 'rl') return <RlSchematic />
+    if (labId === 'rlc' || labId === 'rlc-step') return <RlcSchematic />
+    if (labId === 'sallen-key') return <SallenSchematic />
+    return null
+  })()
+  if (!body) return null
+  return <AnnCtx.Provider value={ann}>{body}</AnnCtx.Provider>
 }

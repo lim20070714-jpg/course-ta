@@ -725,13 +725,14 @@ export default function CircuitBuilder() {
   return (
     <div className="builder">
       <div className="builder-left">
-        <div className="builder-palette">
+        <div className="builder-palette" role="group" aria-label="元件面板：选中后在画布上点击放置">
           {KINDS.map((kind) => (
             <button
               key={kind}
               type="button"
               data-kind={kind}
               className={armed === kind ? 'palette-btn armed' : 'palette-btn'}
+              aria-pressed={armed === kind}
               title={`放置${KIND_LABEL[kind]}（点击后在画布上选位置）`}
               onClick={() => {
                 setArmed(armed === kind ? null : kind)
@@ -888,7 +889,7 @@ export default function CircuitBuilder() {
               整页
             </button>
           </span>
-          <span className="builder-status">
+          <span className="builder-status" role="status">
             {armed
               ? `已选「${KIND_LABEL[armed]}」：点击画布放置，Esc 取消`
               : draft
@@ -992,7 +993,11 @@ export default function CircuitBuilder() {
           ) : (
             <span className="insp-tip">点击元件或导线进行编辑</span>
           )}
-          {hint !== '' && <span className="builder-hint">{hint}</span>}
+          {hint !== '' && (
+            <span className="builder-hint" role="alert">
+              {hint}
+            </span>
+          )}
         </div>
       </div>
 
@@ -1389,9 +1394,11 @@ function AnalysisPanel({
   const circuit = exec.res.circuit
   return (
     <div className="builder-analysis">
-      <div className="builder-tabs">
+      <div className="builder-tabs" role="tablist" aria-label="分析类型">
         <button
           type="button"
+          role="tab"
+          aria-selected={tab === 'dc'}
           data-tab="dc"
           className={tab === 'dc' ? 'tab active' : 'tab'}
           onClick={() => setTab('dc')}
@@ -1400,6 +1407,8 @@ function AnalysisPanel({
         </button>
         <button
           type="button"
+          role="tab"
+          aria-selected={tab === 'tr'}
           data-tab="tr"
           className={tab === 'tr' ? 'tab active' : 'tab'}
           onClick={() => setTab('tr')}
@@ -1408,6 +1417,8 @@ function AnalysisPanel({
         </button>
         <button
           type="button"
+          role="tab"
+          aria-selected={tab === 'ac'}
           data-tab="ac"
           className={tab === 'ac' ? 'tab active' : 'tab'}
           onClick={() => setTab('ac')}
@@ -1415,9 +1426,11 @@ function AnalysisPanel({
           频响
         </button>
       </div>
-      {tab === 'dc' && <DcView circuit={circuit} />}
-      {tab === 'tr' && <TransientView circuit={circuit} />}
-      {tab === 'ac' && <SweepView circuit={circuit} />}
+      <div className="builder-tab-body" key={tab}>
+        {tab === 'dc' && <DcView circuit={circuit} />}
+        {tab === 'tr' && <TransientView circuit={circuit} />}
+        {tab === 'ac' && <SweepView circuit={circuit} />}
+      </div>
     </div>
   )
 }
@@ -1450,8 +1463,12 @@ function DcView({ circuit }: { circuit: Circuit }) {
   return (
     <div>
       <div className="readouts">
-        {rows.map((r) => (
-          <div key={r.label} className="readout">
+        {rows.map((r, i) => (
+          <div
+            key={r.label}
+            className="readout stagger-item"
+            style={{ '--i': Math.min(i, 12) } as React.CSSProperties}
+          >
             <span className="readout-label">{r.label}</span>
             <span className="readout-value">{r.value}</span>
           </div>
@@ -1517,7 +1534,7 @@ function ProbeChips({
   probes: ReturnType<typeof useProbes>
 }) {
   return (
-    <div className="probe-chips">
+    <div className="probe-chips" role="group" aria-label="探针：选择要在曲线中显示的节点电压与元件电流">
       {probes.nodes.map((n) => {
         const key = `n:${n}`
         const on = probes.effective.includes(key)
@@ -1526,6 +1543,7 @@ function ProbeChips({
             key={key}
             type="button"
             data-probe={key}
+            aria-pressed={on}
             className={on ? 'chip on' : 'chip'}
             onClick={() => probes.toggle(key)}
           >
@@ -1541,6 +1559,7 @@ function ProbeChips({
             key={key}
             type="button"
             data-probe={key}
+            aria-pressed={on}
             className={on ? 'chip on' : 'chip'}
             onClick={() => probes.toggle(key)}
           >

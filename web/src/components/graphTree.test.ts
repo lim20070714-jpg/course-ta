@@ -3,26 +3,50 @@ import { describe, expect, it } from 'vitest'
 import type { GraphEdge, GraphNode } from '../api'
 import { fitView, layoutMindMap, moduleOrder } from '../graph/layout'
 import {
+  DIM_FOCUS,
+  DIM_MODULE,
+  DIM_MODULE_EDGE,
+  DIM_SELECTION,
+  MAX_VIEW_MS,
   MAX_VIEW_W,
+  MIN_VIEW_MS,
   MIN_VIEW_W,
   buildModuleTree,
   centerViewOnMinimap,
+  centerViewOnRect,
+  clamp01,
   clampView,
   collapseAll,
+  conceptFocus,
+  conceptPosition,
   dragViewOnMinimap,
+  easeOutCubic,
+  edgeOpacity,
   expandAll,
   expandModule,
   filterTree,
+  focusIds,
   hiddenCount,
+  learningOrder,
+  lerpView,
   mapRectToMinimap,
   minimapLayout,
   minimapPointToWorld,
+  moduleProblemCount,
+  nodeOpacity,
   panByWorldDelta,
+  prefersReducedMotion,
+  projectRect,
   sanitizeView,
   scrollFractions,
   scrollableAxes,
   setZoomWidth,
+  stepConcept,
   toggleModule,
+  viewContains,
+  viewDistance,
+  viewFrame,
+  viewTransitionMs,
   visibleNodeIds,
   visibleNodes,
   withScrollFraction,
@@ -520,5 +544,295 @@ describe('集成：长图谱折叠后确实变短', () => {
     const rows = filterTree(manyTree, '', '', allCollapsed)
     expect(rows.every((r) => !r.open)).toBe(true)
     expect(filterTree(manyTree, '概念7-', '', allCollapsed)[0].module).toBe('模块7')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// v0.11 图谱精修
+// ---------------------------------------------------------------------------
+
+function edge(source: number, target: number, relation = 'prerequisite'): GraphEdge {
+  return { source, target, relation, note: '' }
+}
+
+describe('视窗动画', () => {
+  const from = { x: 0, y: 0, w: 400, h: 300 }
+  const far = { x: 600, y: 400, w: 400, h: 300 }
+  const near = { x: 20, y: 0, w: 400, h: 300 }
+
+  it('easeOutCubic 端点正确、单调且夹取到 0~1', () => {
+    expect(easeOutCubic(0)).toBe(0)
+    expect(easeOutCubic(1)).toBe(1)
+    expect(easeOutCubic(0.5)).toBeCloseTo(0.875, 6)
+    expect(easeOutCubic(-3)).toBe(0)
+    expect(easeOutCubic(9)).toBe(1)
+    expect(easeOutCubic(0.25)).toBeLessThan(easeOutCubic(0.5))
+    expect(clamp01(Number.NaN)).toBe(0)
+    expect(clamp01(2)).toBe(1)
+  })
+
+  it('viewDistance：相同为 0，位移/缩放越大越接近 1', () => {
+    expect(viewDistance(from, { ...from })).toBe(0)
+    expect(viewDistance(from, near)).toBeGreaterThan(0)
+    expect(viewDistance(from, far)).toBeGreaterThan(viewDistance(from, near))
+    expect(viewDistance(from, far)).toBeLessThanOrEqual(1)
+    // 仅缩放也会产生距离
+    expect(viewDistance(from, { x: 0, y: 0, w: 4000, h: 3000 })).toBeGreaterThan(0)
+    // 非法输入不产生 NaN
+    const nan = viewDistance(
+      { x: Number.NaN, y: Number.NaN, w: 0, h: 0 },
+      { x: Number.NaN, y: Number.NaN, w: Number.NaN, h: Number.NaN },
+    )
+    expect(Number.isFinite(nan)).toBe(true)
+    expect(nan).toBeGreaterThanOrEqual(0)
+  })
+
+  it('viewTransitionMs：减少动效或无需移动时为 0，否则落在 [MIN, MAX]', () => {
+    expect(viewTransitionMs(from, { ...from })).toBe(0)
+    expect(viewTransitionMs(from, far, true)).toBe(0)
+    const small = viewTransitionMs(from, near)
+    const big = viewTransitionMs(from, far)
+    expect(small).toBeGreaterThanOrEqual(MIN_VIEW_MS)
+    expect(small).toBeLessThanOrEqual(MAX_VIEW_MS)
+    expect(big).toBe(MAX_VIEW_MS)
+    expect(big).toBeGreaterThan(small)
+  })
+
+  it('lerpView 端点精确、中点按缓出曲线、结果夹取在世界内', () => {
+    expect(lerpView(from, far, 0)).toEqual(from)
+    expect(lerpView(from, far, 1)).toEqual(far)
+    expect(lerpView(from, far, 0.5).x).toBeCloseTo(600 * 0.875, 6)
+    const clamped = lerpView(from, far, 0.5, { w: 400, h: 300 })
+    expect(clamped).toEqual({ x: 16, y: 16, w: 400, h: 300 })
+  })
+
+  it('viewFrame 按时长推进并标记结束', () => {
+    const start = viewFrame(from, far, 0, 320)
+    expect(start.progress).toBe(0)
+    expect(start.done).toBe(false)
+    expect(start.view).toEqual(from)
+    const mid = viewFrame(from, far, 160, 320)
+    expect(mid.progress).toBeCloseTo(0.5, 6)
+    expect(mid.done).toBe(false)
+    expect(mid.view.x).toBeGreaterThan(from.x)
+    expect(mid.view.x).toBeLessThan(far.x)
+    const end = viewFrame(from, far, 5000, 320)
+    expect(end.done).toBe(true)
+    expect(end.progress).toBe(1)
+    expect(end.view).toEqual(far)
+    // 负时间按起点处理
+    expect(viewFrame(from, far, -50, 320).view).toEqual(from)
+  })
+
+  it('viewFrame 在无动画（时长 0 / 非法时长）时直接给出目标', () => {
+    for (const duration of [0, -10, Number.NaN]) {
+      const frame = viewFrame(from, far, 0, duration)
+      expect(frame.done).toBe(true)
+      expect(frame.progress).toBe(1)
+      expect(frame.view).toEqual(far)
+    }
+  })
+
+  it('prefersReducedMotion 在没有 window 的环境下安全返回 false', () => {
+    expect(prefersReducedMotion()).toBe(false)
+  })
+})
+
+describe('概念聚焦与强调', () => {
+  const EDGES = [
+    edge(1, 2),
+    edge(1, 3, 'related'),
+    edge(4, 1),
+    edge(1, 1),
+    edge(2, 3, 'related'),
+  ]
+
+  it('conceptFocus 分出前置 / 后续 / 相关，忽略自环', () => {
+    const focus = conceptFocus(EDGES, 1)
+    expect(focus.id).toBe(1)
+    expect(focus.next).toEqual([2])
+    expect(focus.prerequisites).toEqual([4])
+    expect(focus.related).toEqual([3])
+    expect(focus.neighbors).toEqual([2, 3, 4])
+  })
+
+  it('conceptFocus 双向合并相关边并在邻居里去重', () => {
+    const focus = conceptFocus([...EDGES, edge(3, 1, 'related'), edge(2, 1, 'related')], 1)
+    expect(focus.next).toEqual([2])
+    expect(focus.related).toEqual([2, 3])
+    expect(focus.prerequisites).toEqual([4])
+    expect(focus.neighbors).toEqual([2, 3, 4])
+  })
+
+  it('conceptFocus 对孤立概念与非 prerequisite 关系都成立', () => {
+    expect(conceptFocus(EDGES, 999)).toEqual({
+      id: 999,
+      prerequisites: [],
+      next: [],
+      related: [],
+      neighbors: [],
+    })
+    const onlyRelated = conceptFocus([edge(7, 8, 'related')], 7)
+    expect(onlyRelated.related).toEqual([8])
+    expect(onlyRelated.next).toEqual([])
+  })
+
+  it('focusIds 包含焦点与一圈邻居', () => {
+    const ids = focusIds(conceptFocus(EDGES, 1))
+    expect([...ids].sort((a, b) => a - b)).toEqual([1, 2, 3, 4])
+  })
+
+  it('nodeOpacity：模块筛选 > 聚焦模式 > 仅选中的轻微压暗', () => {
+    const self = { moduleMatch: true, selected: true, neighbor: false }
+    const neighbor = { moduleMatch: true, selected: false, neighbor: true }
+    const other = { moduleMatch: true, selected: false, neighbor: false }
+    const filtered = { moduleMatch: false, selected: true, neighbor: false }
+
+    expect(nodeOpacity(other, false, false)).toBe(1)
+    expect(nodeOpacity(other, false, true)).toBe(DIM_SELECTION)
+    expect(nodeOpacity(self, false, true)).toBe(1)
+    expect(nodeOpacity(neighbor, false, true)).toBe(1)
+    expect(nodeOpacity(other, true, true)).toBe(DIM_FOCUS)
+    expect(nodeOpacity(self, true, true)).toBe(1)
+    expect(nodeOpacity(neighbor, true, true)).toBe(1)
+    expect(nodeOpacity(filtered, false, false)).toBe(DIM_MODULE)
+    expect(nodeOpacity(filtered, true, true)).toBe(DIM_MODULE)
+  })
+
+  it('edgeOpacity：模块筛选优先，聚焦时圈内保留、圈外压到最低', () => {
+    const active = { moduleMatch: true, active: true, inFocus: true }
+    const idle = { moduleMatch: true, active: false, inFocus: false }
+    const inside = { moduleMatch: true, active: false, inFocus: true }
+    const filtered = { moduleMatch: false, active: true, inFocus: true }
+
+    expect(edgeOpacity(idle, false, false)).toBe(1)
+    expect(edgeOpacity(active, false, true)).toBe(1)
+    expect(edgeOpacity(idle, false, true)).toBe(0.3)
+    expect(edgeOpacity(inside, true, true)).toBe(1)
+    expect(edgeOpacity(idle, true, true)).toBe(0.08)
+    expect(edgeOpacity(filtered, false, false)).toBe(DIM_MODULE_EDGE)
+    expect(edgeOpacity(filtered, true, true)).toBe(DIM_MODULE_EDGE)
+  })
+})
+
+describe('视窗定位', () => {
+  const view = { x: 0, y: 0, w: 900, h: 600 }
+  const world = { w: 2000, h: 1200 }
+
+  it('viewContains 判断目标是否已带舒适边距落在视窗内', () => {
+    expect(viewContains(view, { x: 100, y: 100, w: 120, h: 34 })).toBe(true)
+    expect(viewContains(view, { x: 850, y: 100, w: 120, h: 34 })).toBe(false)
+    expect(viewContains(view, { x: 850, y: 100, w: 20, h: 34 })).toBe(true)
+    // pad 是「必须留出的舒适边距」，所以要求更严：贴着边不算舒服
+    expect(viewContains(view, { x: 840, y: 200, w: 40, h: 34 })).toBe(true)
+    expect(viewContains(view, { x: 840, y: 200, w: 40, h: 34 }, 40)).toBe(false)
+    expect(viewContains(view, { x: -40, y: 100, w: 20, h: 34 })).toBe(false)
+    expect(viewContains(view, { x: 0, y: 0, w: 0, h: 0 })).toBe(true)
+  })
+
+  it('centerViewOnRect 把目标居中并夹取在世界内', () => {
+    const next = centerViewOnRect(view, { x: 1000, y: 600, w: 100, h: 34 }, world)
+    expect(next).toEqual({ x: 600, y: 317, w: 900, h: 600 })
+    const edgeCase = centerViewOnRect(view, { x: 0, y: 0, w: 10, h: 10 }, world)
+    expect(edgeCase.x).toBe(-16)
+    expect(edgeCase.y).toBe(-16)
+    // 世界很大时能把远处的概念拉到正中
+    const deep = centerViewOnRect(view, { x: 4000, y: 3000, w: 100, h: 100 }, { w: 5000, h: 5000 })
+    expect(deep).toEqual({ x: 3600, y: 2750, w: 900, h: 600 })
+  })
+
+  it('centerViewOnRect 对非法输入仍返回有限数值', () => {
+    const next = centerViewOnRect(
+      { x: Number.NaN, y: Number.NaN, w: Number.NaN, h: Number.NaN },
+      { x: Number.NaN, y: Number.NaN, w: Number.NaN, h: Number.NaN },
+      { w: Number.NaN, h: Number.NaN },
+    )
+    for (const n of [next.x, next.y, next.w, next.h]) expect(Number.isFinite(n)).toBe(true)
+  })
+})
+
+describe('学习顺序遍历', () => {
+  const ordered = learningOrder(NODES)
+
+  it('learningOrder 按 order 再按 id，且不修改入参', () => {
+    expect(ordered.map((n) => n.id)).toEqual([2, 7, 9, 5, 11])
+    expect(NODES.map((n) => n.id)).toEqual([7, 2, 5, 9, 11])
+    expect(learningOrder([])).toEqual([])
+  })
+
+  it('conceptPosition 给出一基序号与总数', () => {
+    expect(conceptPosition(NODES, 2)).toEqual({ index: 1, total: 5 })
+    expect(conceptPosition(NODES, 11)).toEqual({ index: 5, total: 5 })
+    expect(conceptPosition(NODES, 999)).toBeNull()
+    expect(conceptPosition(NODES, null)).toBeNull()
+  })
+
+  it('stepConcept 前后移动并在两端返回 null', () => {
+    expect(stepConcept(NODES, 2, 1)).toBe(7)
+    expect(stepConcept(NODES, 7, -1)).toBe(2)
+    expect(stepConcept(NODES, 11, 1)).toBeNull()
+    expect(stepConcept(NODES, 2, -1)).toBeNull()
+    expect(stepConcept(NODES, 2, 0)).toBe(7)
+    expect(stepConcept(NODES, 7, -3)).toBe(2)
+  })
+
+  it('stepConcept 未选中时给出一端，空图返回 null', () => {
+    expect(stepConcept(NODES, null, 1)).toBe(2)
+    expect(stepConcept(NODES, null, -1)).toBe(11)
+    expect(stepConcept(NODES, 999, 1)).toBe(2)
+    expect(stepConcept([], null, 1)).toBeNull()
+    expect(stepConcept([], 3, -1)).toBeNull()
+  })
+})
+
+describe('模块题目统计', () => {
+  it('moduleProblemCount 汇总每个模块的真题数并按题目 id 去重', () => {
+    const dup = node(20, 'D', '电路基础', 2, '', 0)
+    dup.problems = [
+      { id: 501, number: '题1', material: '课件' },
+      { id: 502, number: '题2', material: '课件' },
+    ]
+    const shared = node(21, 'E', '电路基础', 3, '', 0)
+    shared.problems = [{ id: 502, number: '题2', material: '课件' }]
+    const counts = moduleProblemCount([...NODES, dup, shared])
+    // NODES: 电路基础 2 题（id 200/201），动态电路 0 题；再加上去重后的 501、502
+    expect(counts.get('电路基础')).toBe(4)
+    expect(counts.has('动态电路')).toBe(false)
+    expect(counts.has('复频域分析')).toBe(false)
+    expect(moduleProblemCount([]).size).toBe(0)
+  })
+})
+
+describe('缩略图矩形投影', () => {
+  const world = { w: 1000, h: 400 }
+  const view = { x: 0, y: 0, w: 500, h: 200 }
+  const layout = minimapLayout(world, view, { w: 200, h: 200 })
+
+  it('projectRect 与 mapRectToMinimap 结果一致', () => {
+    const rect = { x: 500, y: 100, w: 100, h: 34 }
+    expect(projectRect(rect, layout.content, layout.offset, layout.scale, layout.box)).toEqual(
+      mapRectToMinimap(layout, rect),
+    )
+  })
+
+  it('零 / 非法比例返回空矩形，越界矩形被夹取在缩略图内', () => {
+    expect(projectRect(view, layout.content, layout.offset, 0, layout.box)).toEqual({
+      x: 0,
+      y: 0,
+      w: 0,
+      h: 0,
+    })
+    expect(projectRect(view, layout.content, layout.offset, Number.NaN, layout.box).w).toBe(0)
+    const outside = projectRect(
+      { x: -99999, y: -99999, w: 999999, h: 999999 },
+      layout.content,
+      layout.offset,
+      layout.scale,
+      layout.box,
+    )
+    expect(outside.x).toBe(0)
+    expect(outside.y).toBe(0)
+    expect(outside.w).toBeLessThanOrEqual(200)
+    expect(outside.h).toBeLessThanOrEqual(200)
   })
 })
