@@ -40,7 +40,7 @@ export default function LabPage() {
           <span className="lab-title">电路画板</span>
           <span className="lab-chapter">任意组合元件 · 自建电路</span>
         </button>
-        <div className="section-title lab-sep">预置实验</div>
+        <div className="section-title lab-sep">参数实验场</div>
         {LABS.map((l) => (
           <button
             key={l.id}
@@ -52,8 +52,8 @@ export default function LabPage() {
           </button>
         ))}
         <p className="lab-tip">
-          数值由自研 MNA 仿真内核计算（直流 / 瞬态 / 交流），与手算及教材结论一致，见
-          web/src/circuit 单元测试。
+          8 个参数实验 + 自由画板共用同一自研 MNA 内核，曲线随滑块实时重算（直流 / 瞬态 / 交流扫频），
+          与手算及教材结论一致，见 web/src/circuit 单元测试。
         </p>
       </aside>
 

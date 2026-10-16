@@ -120,6 +120,28 @@ function Ground({ x, y }: { x: number; y: number }) {
   )
 }
 
+function OpAmp({ x, y, label }: { x: number; y: number; label: string }) {
+  return (
+    <g>
+      <path
+        d={`M${x} ${y - 14} L${x + 26} ${y} L${x} ${y + 14} Z`}
+        fill="#fff"
+        stroke={STROKE}
+        strokeWidth={1.6}
+      />
+      <line x1={x + 1} y1={y - 6} x2={x + 11} y2={y - 6} stroke={STROKE} strokeWidth={1.6} />
+      <line x1={x + 1} y1={y + 6} x2={x + 11} y2={y + 6} stroke={STROKE} strokeWidth={1.6} />
+      <text x={x + 2} y={y - 1} fontSize={10} fill={LABEL}>
+        +
+      </text>
+      <text x={x + 2} y={y + 12} fontSize={10} fill={LABEL}>
+        −
+      </text>
+      <Lbl x={x + 13} y={y + 26} text={label} />
+    </g>
+  )
+}
+
 function Svg({ children }: { children: React.ReactNode }) {
   return (
     <svg viewBox="0 0 280 185" style={{ width: '100%', maxWidth: 330 }}>
@@ -199,10 +221,41 @@ function RlcSchematic() {
   )
 }
 
+function SallenSchematic() {
+  return (
+    <Svg>
+      <Wire d="M56 72 L56 34 L92 34" />
+      <Wire d="M56 109 L56 148" />
+      <VSource x={56} y={96} label="V₁" />
+      <Ground x={56} y={148} />
+      <RBoxH x0={92} x1={128} y={34} label="R₁" />
+      <Wire d="M128 34 L160 34" />
+      <NodeDot x={144} y={34} />
+      <RBoxH x0={160} x1={196} y={34} label="R₂" />
+      <Wire d="M196 34 L230 34" />
+      <NodeDot x={208} y={34} />
+      <Wire d="M144 34 L144 62" />
+      <CapV x={144} y={68} label="C₁" side="left" />
+      <Wire d="M144 74 L144 128 L268 128 L268 40" />
+      <Wire d="M208 34 L208 62" />
+      <CapV x={208} y={68} label="C₂" side="right" />
+      <Wire d="M208 74 L208 100" />
+      <Ground x={208} y={100} />
+      <OpAmp x={230} y={40} label="U₁" />
+      <Wire d="M241 46 L256 46 L256 66 L268 66" />
+      <Wire d="M256 40 L276 40" />
+      <NodeDot x={268} y={40} />
+      <NodeDot x={268} y={66} />
+      <Lbl x={276} y={28} text="v_out" anchor="end" />
+    </Svg>
+  )
+}
+
 export default function Schematic({ labId }: { labId: string }) {
   if (labId === 'divider') return <DividerSchematic />
-  if (labId === 'rc' || labId === 'rc-lowpass') return <RcSchematic />
+  if (labId === 'rc' || labId === 'rc-lowpass' || labId === 'square-rc') return <RcSchematic />
   if (labId === 'rl') return <RlSchematic />
-  if (labId === 'rlc') return <RlcSchematic />
+  if (labId === 'rlc' || labId === 'rlc-step') return <RlcSchematic />
+  if (labId === 'sallen-key') return <SallenSchematic />
   return null
 }

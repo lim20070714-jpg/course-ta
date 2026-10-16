@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { LABS } from './labs'
 
-describe('预置实验', () => {
+describe('参数实验场', () => {
   for (const lab of LABS) {
     it(`${lab.title}：默认参数可运行且数值全部有限`, () => {
       const params = Object.fromEntries(lab.params.map((p) => [p.key, p.default] as const))
@@ -60,5 +60,53 @@ describe('预置实验', () => {
     const run = lab.run({ r: 10, l: 0.01, c: 1e-6 })
     const peak = run.series.find((s) => s.marker)!
     expect(peak.y[0]).toBeCloseTo(20, 0)
+  })
+
+  it('RLC 阶跃：ζ=0.05 欠阻尼，峰值≈1.85 且带包络线，稳态回 1', () => {
+    const lab = LABS.find((l) => l.id === 'rlc-step')!
+    const run = lab.run({ r: 10, l: 0.01, c: 1e-6 })
+    const vc = run.series[0].y
+    expect(Math.max(...vc)).toBeGreaterThan(1.7)
+    expect(Math.max(...vc)).toBeLessThan(1.95)
+    expect(vc[vc.length - 1]).toBeCloseTo(1, 1)
+    expect(run.series.some((s) => s.label === '包络 +')).toBe(true)
+  })
+
+  it('RLC 阶跃：R=1kΩ 过阻尼，单调上升无超调', () => {
+    const lab = LABS.find((l) => l.id === 'rlc-step')!
+    const run = lab.run({ r: 1000, l: 0.01, c: 1e-6 })
+    const vc = run.series[0].y
+    expect(vc[vc.length - 1]).toBeCloseTo(1, 1)
+    for (let i = 1; i < vc.length; i++) {
+      expect(vc[i]).toBeGreaterThanOrEqual(vc[i - 1] - 1e-9)
+    }
+  })
+
+  it('RC 方波：τ≪T 跟随方波（0↔5V），τ≫T 纹波极小（积分）', () => {
+    const lab = LABS.find((l) => l.id === 'square-rc')!
+    const diff = lab.run({ r: 1e3, c: 1e-8, f: 100 })
+    const vcd = diff.series[0].y
+    expect(Math.max(...vcd)).toBeGreaterThan(4.9)
+    expect(Math.min(...vcd)).toBeLessThan(0.1)
+    const integ = lab.run({ r: 1e3, c: 1e-5, f: 1e4 })
+    const vci = integ.series[0].y
+    expect(Math.max(...vci) - Math.min(...vci)).toBeLessThan(0.15)
+  })
+
+  it('Sallen-Key：默认 C₁=2C₂ 为 Butterworth 无峰，100·f₀ 处 −80dB（二阶 ×2 个十倍频程）', () => {
+    const lab = LABS.find((l) => l.id === 'sallen-key')!
+    const run = lab.run({ r: 1e4, c1: 2e-7, c2: 1e-7 })
+    const db = run.series[0].y
+    expect(Math.max(...db)).toBeLessThan(0.5)
+    expect(db[240]).toBeCloseTo(-80, 0)
+  })
+
+  it('Sallen-Key：C₁=100·C₂ 时 Q=5，峰值增益 13–15dB', () => {
+    const lab = LABS.find((l) => l.id === 'sallen-key')!
+    const run = lab.run({ r: 1e4, c1: 1e-6, c2: 1e-8 })
+    const db = run.series[0].y
+    const peak = Math.max(...db)
+    expect(peak).toBeGreaterThan(13)
+    expect(peak).toBeLessThan(15)
   })
 })
