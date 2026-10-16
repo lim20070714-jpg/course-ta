@@ -51,7 +51,8 @@ flowchart LR
 - [x] v0.8.1 深色模式与示波器仪器风：全局设计 token 化
 - [x] v0.8.2 动效包：复习卡 3D 翻转、电路图电流流动与全局过渡
 - [x] v0.9 考试冲刺模式：设置课程考试日期后进入冲刺期（考前 30 天内），SM-2 间隔按剩余天数压缩到考试之前（考前 1 天内压到半天），到期队列改为按考点热度加权排序并纳入尚未到期的卡片（可提前推进），界面显示倒计时、冲刺阶段与「为什么排在前面」的加权理由
-- [ ] v0.10 多课程公开部署、老师端数据面板
+- [x] v0.10 图谱导航重构与资料分区：知识图谱支持模块折叠（折叠后布局只排可见节点，图真的会变短）、树形层级侧栏、缩略图导航器与缩放 / 偏移滑块，不再依赖鼠标拖拽理脉络；课程资料按类型分区（试题 / 课件 / 图片 / 教材 / 讲义 / 其他），可直接在分区内上传且在选择文件前就显示上传目标；新增 Word 文档与图片材料支持，图片可经视觉模型生成文字描述并参与检索与总结
+- [ ] v0.11 多课程公开部署、老师端数据面板
 
 ## 快速开始
 
@@ -109,6 +110,16 @@ curl localhost:8000/api/courses/1/review/sprint   # 冲刺概览与高频考点
 | `LLM_API_KEY` / `LLM_BASE_URL` / `LLM_MODEL` | 任意 OpenAI 兼容对话接口（DeepSeek / Qwen / Ollama…） |
 | `EMBEDDING_API_KEY` / `EMBEDDING_BASE_URL` / `EMBEDDING_MODEL` | 向量模型（如 DashScope `text-embedding-v3`、Ollama `bge-m3`）；注意 DeepSeek 暂无 embeddings 接口，需单独配置 |
 | `EXTRACT_MODEL` | 题目抽取专用模型（可选，默认同 `LLM_MODEL`）。抽取是一次性批量任务，建议用更强的模型保证公式与结构质量 |
+| `VISION_MODEL` | 图片描述专用视觉模型（可选，需支持图片输入，如 `Qwen/Qwen2.5-VL-32B-Instruct`）。配置后图片上传即生成中文描述，描述作为该页正文参与检索、知识总结与图谱引用；留空则跳过描述，图片仍可上传与查看 |
+
+### 支持的材料格式
+
+| 格式 | 处理方式 |
+| --- | --- |
+| PDF / PPTX | 版面级文本抽取 + 可选 LLM 排版修复；原页图按需渲染 |
+| DOCX | 标题 / 列表 / 表格保留结构；内嵌图片导出为独立页，可直接查看原图 |
+| TXT / MD | 直接入库 |
+| 图片（PNG / JPG / WEBP / GIF / BMP / TIFF） | 本身作为第 1 页可查看；配置 `VISION_MODEL` 后生成文字描述并入库检索 |
 
 ### 测试与评测
 
@@ -129,11 +140,11 @@ course-ta/
 ├── server/            # FastAPI 后端
 │   ├── app/
 │   │   ├── api/       # 接口：课程、材料、资料浏览、材料总结、知识图谱、流式聊天、题库（抽取 / 批改 / 详解 / 错题本）、复习计划与考试冲刺、计算台与公式库
-│   │   ├── core/      # LLM 客户端、文档解析、检索、sympy 工具与符号计算内核、RAG、题目抽取与批改、材料总结、图谱抽取、SM-2 调度与冲刺压缩
-│   │   └── models.py  # Course(含 exam_date) / Material / Chunk / Problem / Attempt / Summary / Formula / CourseGraph / Concept / ConceptEdge / ReviewCard
+│   │   ├── core/      # LLM 客户端、文档解析（PDF / PPTX / DOCX / 图片）、检索、sympy 工具与符号计算内核、RAG、题目抽取与批改、材料总结、图谱抽取、SM-2 调度与冲刺压缩
+│   │   └── models.py  # Course(含 exam_date) / Material(含 pages 图片页) / Chunk / Problem / Attempt / Summary / Formula / CourseGraph / Concept / ConceptEdge / ReviewCard
 │   ├── scripts/       # 重新索引、批量真题抽取、批量总结、图谱生成 CLI
 │   └── tests/
-├── web/               # React + Vite + TypeScript 前端（src/sections 分区页面、src/compute 计算台、src/graph 图谱布局、src/circuit 仿真引擎、src/labs 预置实验）
+├── web/               # React + Vite + TypeScript 前端（src/sections 分区页面、src/compute 计算台、src/graph 图谱布局与折叠树、src/circuit 仿真引擎、src/labs 预置实验）
 ├── evals/             # 评测集与评测脚本
 └── data/              # 本地数据（课程材料、向量库），已 gitignore
 ```
