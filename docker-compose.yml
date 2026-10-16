@@ -35,10 +35,13 @@ services:
     volumes:
       - course_data:/app/data
 
-    # 仅绑定回环：方便在宿主机直接调试或用 /docs，不对外网暴露 API。
-    # 想给内网其他机器直连 API（"只用 API" 那条路径）就改成 "8000:8000"。
-    ports:
-      - "127.0.0.1:8000:8000"
+    # 默认**不**把 API 发布到宿主机：
+    #   * web 容器通过 compose 内网用服务名 `api:8000` 访问它，页面与 /api 都在 8080 上；
+    #   * 若把 8000 也发布到宿主机，会和本机正在跑的 `uvicorn --port 8000` 抢占端口，
+    #     导致整个编排起不来（docker: ports are not available）。
+    # 只有"只用 API、不要网页"的场景才需要打开下面两行（并先停掉本机 8000 上的进程）：
+    # ports:
+    #   - "8000:8000"
 
   web:
     build:

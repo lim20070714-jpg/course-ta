@@ -331,6 +331,43 @@ docker compose up -d
 - **当前开发机未安装 Docker**，因此 `docker build` / `docker compose up` 与 nginx 实际运行
   尚未实测（`nginx -t` 也无法执行）。首次部署时请以 `docker compose logs` 为准。
 
+> **2026-10-16 更新：Docker 已安装，上述内容已实测通过。** 实测结论：
+>
+> - `docker compose build` 两个镜像构建成功（`course-ta-api:local`、`course-ta-web:local`）；
+> - `docker compose up -d` 后 api 容器为 `healthy`、web 容器发布 8080；
+> - 经 nginx 验证：`/` 返回页面、`/api/health` 与 `/api/config` 反代正常、SPA 深链接回退 200、
+>   `/docs` 可用；容器首启自动建库并种入 35 条预置公式；
+> - **发现并修复一个真实冲突**：原先 api 服务把 `8000` 发布到宿主机，只要本机正在跑
+>   `uvicorn --port 8000`（开发时的常见状态）就会 `ports are not available` 导致整个编排起不来。
+>   现已默认不发布该端口（web 容器通过 compose 内网 `api:8000` 访问），需要时再手动打开注释。
+> - 国内拉取 Docker Hub 的注意事项见下节。
+
+## 附：国内环境拉取镜像
+
+Docker Hub 在国内常被阻断。本机实测（2026-10）：
+
+- `registry-1.docker.io` / `auth.docker.io` **直连超时**；但 Docker Desktop 自带代理转发
+  （`docker info` 里可见 `HTTP Proxy: http.docker.internal:3128`）可复用宿主机代理；
+- 免费加速器**大量已关停**：腾讯云、中科大、网易、百度镜像实测均为 `000` 不可达；
+- 仍可用的公益镜像（实测 `/v2/` 有正常响应）：`docker.1panel.live`、`docker.1ms.run`、
+  `docker.xuanyuan.me`。
+
+配置方式（写入 `~/.docker/daemon.json` 后重启 Docker 引擎）：
+
+```json
+{
+  "registry-mirrors": [
+    "https://docker.1panel.live",
+    "https://docker.1ms.run",
+    "https://docker.xuanyuan.me"
+  ]
+}
+```
+
+注意：第三方公益镜像能看到你拉取了哪些镜像，**只用于公开基础镜像即可**，不要用它推送私有镜像。
+公司/学校网络下更稳妥的做法是在 Docker Desktop → Settings → Resources → Proxies 里配置代理。
+
+
 ## 附：视觉模型换用 DeepSeek
 
 项目支持「对话」与「图片理解」用**不同服务商**。DeepSeek 的多模态模型为
