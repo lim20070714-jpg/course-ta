@@ -56,12 +56,17 @@ async def complete(
     max_tokens: int | None = None,
     timeout_s: float | None = None,
     model: str | None = None,
+    cfg: config.EffectiveSettings | None = None,
 ) -> str:
-    """非流式调用，用于评测、题目抽取等场景；model 可覆盖默认对话模型。"""
-    cfg = config.current()
-    _require_chat_key(cfg)
+    """非流式调用，用于评测、题目抽取等场景。
+
+    `model` 可覆盖模型名；`cfg` 可指定使用哪套服务商配置——图片描述会用
+    独立的视觉服务商（可能不是同一个 base_url / key），因此需要显式传入。
+    """
+    active = cfg or config.current()
+    _require_chat_key(active)
     payload: dict = {
-        "model": model or cfg.llm_model,
+        "model": model or active.llm_model,
         "messages": messages,
         "stream": False,
     }
@@ -70,9 +75,9 @@ async def complete(
     timeout = httpx.Timeout(timeout_s, connect=20.0) if timeout_s else _TIMEOUT
     async with httpx.AsyncClient(timeout=timeout) as client:
         resp = await client.post(
-            f"{cfg.llm_base_url}/chat/completions",
+            f"{active.llm_base_url}/chat/completions",
             json=payload,
-            headers=_bearer(cfg.llm_api_key),
+            headers=_bearer(active.llm_api_key),
         )
         resp.raise_for_status()
         return resp.json()["choices"][0]["message"]["content"]

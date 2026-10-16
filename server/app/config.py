@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     llm_model: str = "deepseek-chat"
     extract_model: str = ""  # 题目抽取可单独指定更强的模型；留空则用 llm_model
     vision_model: str = ""  # 图片描述专用视觉模型；留空则跳过图片描述（不影响上传与查看）
+    # 视觉模型可以来自与对话模型不同的服务商（例如对话用 Qwen、图片理解用 DeepSeek）
+    vision_key: str = ""  # 留空则复用 LLM_API_KEY
+    vision_base: str = ""  # 留空则复用 LLM_BASE_URL
 
     embedding_api_key: str = ""
     embedding_base_url: str = ""
@@ -71,6 +74,7 @@ class RequestOverrides:
     embed_base_url: str | None = None
     embed_model: str | None = None
     vision_model: str | None = None
+    vision_base_url: str | None = None
     from_client: bool = False  # 该请求是否携带了自己的密钥
 
     @property
@@ -84,6 +88,7 @@ class RequestOverrides:
                 self.embed_base_url,
                 self.embed_model,
                 self.vision_model,
+                self.vision_base_url,
             )
         )
 
@@ -157,6 +162,15 @@ class EffectiveSettings:
     def embed_api_key(self) -> str:
         return self.embedding_api_key or self.llm_api_key
 
+    @property
+    def vision_base_url(self) -> str:
+        # 覆盖优先（BYOK）→ 独立的视觉服务商 → 回退到对话服务商
+        return (self._o.vision_base_url or self._base.vision_base or self.llm_base_url).rstrip("/")
+
+    @property
+    def vision_api_key(self) -> str:
+        return self._o.llm_api_key or self._base.vision_key or self._base.llm_api_key
+
     # ---- 其余标量配置直接透传 ----
     @property
     def top_k(self) -> int:
@@ -180,6 +194,23 @@ def current() -> EffectiveSettings:
     return EffectiveSettings(settings, _active.get() or RequestOverrides())
 
 
+def vision_config() -> Settings:
+    """图片描述专用配置。
+
+    视觉模型可以来自与对话模型不同的服务商：优先用 `VISION_KEY` / `VISION_BASE`
+    （留空则复用 `LLM_*`），再把 llm_* 指向该服务商，这样 `llm.complete()` 走对端点。
+    """
+    active = current()
+    # Settings 是 pydantic 模型（非 dataclass），用 model_copy 生成指向视觉服务商的副本
+    return settings.model_copy(
+        update={
+            "llm_base_url": active.vision_base_url,
+            "llm_api_key": active.vision_api_key,
+            "llm_model": active.vision_model,
+        }
+    )
+
+
 @contextmanager
 def apply_overrides(override: RequestOverrides) -> Iterator[None]:
     """在 with 块内让 `current()` 返回被覆盖后的配置；退出时自动还原。"""
@@ -199,6 +230,7 @@ HEADER_EMBED_KEY = "x-embedding-api-key"
 HEADER_EMBED_BASE_URL = "x-embedding-base-url"
 HEADER_EMBED_MODEL = "x-embedding-model"
 HEADER_VISION_MODEL = "x-vision-model"
+HEADER_VISION_BASE_URL = "x-vision-base-url"
 
 # 允许的最大长度，防止把超长字符串塞进请求头
 _MAX_HEADER = 300
@@ -226,6 +258,7 @@ def overrides_from_headers(headers: dict[str, str]) -> RequestOverrides:
         embed_base_url=take(HEADER_EMBED_BASE_URL),
         embed_model=take(HEADER_EMBED_MODEL),
         vision_model=take(HEADER_VISION_MODEL),
+        vision_base_url=take(HEADER_VISION_BASE_URL),
         from_client=key is not None or embed_key is not None,
     )
 
@@ -242,6 +275,9 @@ def describe_runtime() -> dict[str, object]:
         "server_model": settings.llm_model,
         "server_base_url": settings.llm_base_url,
         "server_vision_model": settings.vision_model,
+        # 视觉模型是否与对话模型来自不同服务商（只报告事实，不含密钥）
+        "vision_base_url": settings.vision_base or settings.llm_base_url,
+        "vision_separate_provider": bool(settings.vision_base),
         "byok_headers": {
             "key": HEADER_KEY,
             "base_url": HEADER_BASE_URL,
@@ -250,5 +286,6 @@ def describe_runtime() -> dict[str, object]:
             "embedding_base_url": HEADER_EMBED_BASE_URL,
             "embedding_model": HEADER_EMBED_MODEL,
             "vision_model": HEADER_VISION_MODEL,
+            "vision_base_url": HEADER_VISION_BASE_URL,
         },
     }

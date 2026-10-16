@@ -122,7 +122,23 @@ curl localhost:8000/api/courses/1/review/sprint   # 冲刺概览与高频考点
 | `LLM_API_KEY` / `LLM_BASE_URL` / `LLM_MODEL` | 任意 OpenAI 兼容对话接口（DeepSeek / Qwen / Ollama…） |
 | `EMBEDDING_API_KEY` / `EMBEDDING_BASE_URL` / `EMBEDDING_MODEL` | 向量模型（如 DashScope `text-embedding-v3`、Ollama `bge-m3`）；注意 DeepSeek 暂无 embeddings 接口，需单独配置 |
 | `EXTRACT_MODEL` | 题目抽取专用模型（可选，默认同 `LLM_MODEL`）。抽取是一次性批量任务，建议用更强的模型保证公式与结构质量 |
-| `VISION_MODEL` | 图片描述专用视觉模型（可选，需支持图片输入，如 `Qwen/Qwen2.5-VL-32B-Instruct`）。配置后图片上传即生成中文描述，描述作为该页正文参与检索、知识总结与图谱引用；留空则跳过描述，图片仍可上传与查看 |
+| `VISION_MODEL` | 图片描述专用视觉模型（可选，需支持图片输入）。配置后图片上传即生成中文描述，描述作为该页正文参与检索、知识总结与图谱引用；留空则跳过描述，图片仍可上传与查看 |
+| `VISION_BASE` / `VISION_KEY` | 视觉模型可以**来自与对话模型不同的服务商**：留空则复用 `LLM_BASE_URL` / `LLM_API_KEY`。例如对话继续用 SiliconFlow 的 Qwen、图片理解改用 DeepSeek 时，只需填这两项指向 DeepSeek |
+
+#### 换成 DeepSeek 的视觉模型
+
+DeepSeek 自 2026-08 起提供多模态模型，模型名为 **`deepseek-flash`**（旧的
+`deepseek-v4-flash-vision-exp` 已下线但仍可调用）。它使用标准 OpenAI 图像格式
+（`content` 为块数组 + `image_url` data URL），与本项目已有实现一致，因此**只需改配置**：
+
+```bash
+VISION_MODEL=deepseek-flash
+VISION_BASE=https://api.deepseek.com/v1
+VISION_KEY=sk-你的DeepSeek密钥
+```
+
+图片按 token 计费，单图上限约 1024 tokens；对话与向量仍走原服务商，互不影响。
+改完重启后端即可，可在「课程资料」上传一张图片验证是否生成描述。
 
 ### 支持的材料格式
 

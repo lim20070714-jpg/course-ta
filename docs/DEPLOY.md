@@ -185,8 +185,11 @@ AI 能力（问答、批改、详解、题目抽取、总结、图谱、图片�
 | `X-LLM-API-Key` | `LLM_API_KEY` |
 | `X-LLM-Base-URL` | `LLM_BASE_URL` |
 | `X-LLM-Model` | `LLM_MODEL` |
+| `X-Embedding-API-Key` | `EMBEDDING_API_KEY` |
+| `X-Embedding-Base-URL` | `EMBEDDING_BASE_URL` |
 | `X-Embedding-Model` | `EMBEDDING_MODEL` |
 | `X-Vision-Model` | `VISION_MODEL` |
+| `X-Vision-Base-URL` | `VISION_BASE` |
 
 没带的头一律回退到服务端 `server/.env`。内置 Web 页面里「自带密钥」入口输入的密钥
 只存在访问者浏览器的 `localStorage`。细节与 `curl` 示例见 [API.md](API.md) 第 2 节。
@@ -327,3 +330,56 @@ docker compose up -d
 - 端点表与运行中应用的 `/openapi.json` 逐条核对过；BYOK 请求头名与 `server/app/config.py` 一致；
 - **当前开发机未安装 Docker**，因此 `docker build` / `docker compose up` 与 nginx 实际运行
   尚未实测（`nginx -t` 也无法执行）。首次部署时请以 `docker compose logs` 为准。
+
+## 附：视觉模型换用 DeepSeek
+
+项目支持「对话」与「图片理解」用**不同服务商**。DeepSeek 的多模态模型为
+`deepseek-flash`（2026-08 上线，旧名 `deepseek-v4-flash-vision-exp` 仍可调用），
+采用标准 OpenAI 图像格式，本项目已实现的 `image_url` + base64 调用方式直接兼容。
+
+```ini
+; server/.env —— 只加这三行，对话与向量保持原样
+VISION_MODEL=deepseek-flash
+VISION_BASE=https://api.deepseek.com/v1
+VISION_KEY=sk-你的DeepSeek密钥
+```
+
+- 图片按 token 计费（单图上限约 1024 tokens），与 V4-Flash 同价；空闲时段价格减半。
+- 不填 `VISION_KEY` 时复用 `LLM_API_KEY`；不填 `VISION_MODEL` 时跳过图片描述，图片仍可上传与查看。
+- 改完**必须重启后端**（uvicorn 未开 `--reload`）。
+- 验证：上传一张图片，看材料正文是否出现 `[图片 1] …`；或 `GET /api/config` 查
+  `vision_separate_provider` 是否为 `true`。
+
+## 附：免费域名与校内分享
+
+- **`.edu.cn` 个人申请不到**：该后缀的申请主体必须是教育机构，需要单位资质与 CNNIC 流程，
+  个人或学生社团无法直接注册。
+- **清华 TUNA 不提供域名注册**：它提供的是 [DNS 查询服务](https://tuna.moe/help/dns/) 与镜像站，
+  不是域名托管方。
+- **免费二级域名**（如 [localhost.cc](https://github.com/localhost-cc/Freedomain)、
+  [register-edu](https://github.com/xiaokun567/register-edu)）可做临时演示，但归属、稳定性与
+  续期政策都不由你控制，**不建议承载课程数据**。
+- **推荐路径**：校内直接用校园网地址分享；需要正式域名与固定服务器时，向学校信息化部门
+  申请，或走院系立项。若必须公网可用，可用 Cloudflare Tunnel 之类内网穿透把本机服务
+  映射到自有域名（无需公网 IP），但需遵守学校网络使用规定。
+
+### 校内分享的最小配置
+
+```bash
+# 1) 后端绑定所有网卡（关键：绑 127.0.0.1 时同学访问不到）
+cd server
+uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+# 2) 前端也要对外监听（Vite 默认只监听 localhost）
+cd ../web
+npm run dev -- --host 0.0.0.0
+
+# 3) 允许同学的浏览器来源，把地址换成你的实际 IP
+#    server/.env: CORS_ORIGINS=http://<你的IP>:5173,http://localhost:5173
+```
+
+同学访问 `http://<你的IP>:5173`。注意：
+
+- 学校防火墙可能**禁止入站**，先让同学实际访问确认；
+- 关机/休眠服务即中断，长期共享建议放到院系服务器；
+- 想避免被消耗额度，用 BYOK：`server/.env` 里**不填** `LLM_API_KEY`，访问者必须自带密钥。
