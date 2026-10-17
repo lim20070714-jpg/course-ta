@@ -16,14 +16,14 @@ LLM 只做支撑（抽取、批改、总结、图谱归纳），学生始终在�
 | --- | --- |
 | 主界面分区 | 8 个（⌘1..8 与命令面板直达） |
 | 后端 API operation | 57 个（覆盖 42 条路径），OpenAPI 自动生成 |
-| 自动化测试 | **740** 个：后端 315（pytest，全部离线）+ 前端 425（Vitest，19 个文件） |
+| 自动化测试 | **749** 个：后端 321（pytest，26 个文件，全部离线）+ 前端 428（Vitest，20 个文件） |
 | 静态检查 | ruff + tsc + oxlint 零告警；CI 2 个 job（后端 / 前端）全绿 |
-| 代码规模 | 约 35.6k 行：后端 `server/app` 6,432、`server/tests` 3,981、前端 `web/src` ts/tsx 18,699、`web/src/index.css` 6,483 |
+| 代码规模 | 约 35.9k 行：后端 `server/app` 6,493、`server/tests` 4,125、前端 `web/src` ts/tsx 18,774、`web/src/index.css` 6,535 |
 | 自托管 | `docker-compose` 一键；前端 nginx 静态托管 + 反向代理；默认 `http://localhost:8080` |
 | 密钥模式 | BYOK：用户填自己的 Key，服务端可完全不留密钥 |
 | 许可 | MIT |
 
-## 八个真正的技术难点
+## 九个真正的技术难点
 
 **1. 试卷 / 课件 PDF 的版面级还原（`server/app/core/ingest.py`、`glyph_tables.py`、`crops.py`）**
 课件里的公式多是 MathType/Wingdings 嵌入的匿名子集字体，ToUnicode 映射丢失，PyMuPDF 只能回退成
@@ -110,14 +110,31 @@ PATCH 若直接返回 ORM 对象，`page_count` 会退回表里的 0（列表口
 （含中文注记的特征值结果才退回 plain），以及结果卡与历史列表各自限高内部滚动——算完一次不再把「刷新 / 清空」顶出视野。
 写法提示框里的 14 条示例全部走同一套 KaTeX 校验（`throwOnError`），保证给用户看的写法自己就先能排版。
 
+**9. 进程会重启，但状态不能撒谎（`server/app/core/recovery.py`、`web/src/components/SectionBoundary.tsx`）**
+入库 / 总结 / 图谱 / 批改都挂在 FastAPI 的 `BackgroundTasks` 上，只活在进程里，而状态写在 SQLite 里。
+半路重启（本机开发每天都会 Ctrl+C）之后，任务不会再跑，库里却还停在 `ingesting` / `generating` / `grading`：
+前端永远转圈，改名与删除被「还在后台处理」的守卫一直挡成 409，模考更糟——`grading` 既不允许改作答也不允许重新交卷，
+一场卷子就地锁死。解法是在 lifespan 里一次性把「进行中」收成**用户点得动的下一步**，而不是笼统标成失败：
+资料与总结、图谱转 `failed` 并在 `error` 里写清「是被重启打断的、原件还在、删掉重传 / 点重新生成」，
+模考退回 `running`，因为作答本来就逐题存在 `ExamAnswer` 里，退回可编辑状态等于把三个小时还给学生。
+进程内那几张 `_JOBS` 表随进程消失、读回来就是 `idle`，所以复位只需覆盖持久化状态——这决定了它的边界。
+
+同一轮把前端的爆炸半径也收成一个分区：任一块渲染抛错（脏数据、按路由懒加载后的 chunk 拉取失败）原先会白掉整个
+8 分区应用，现在由分区级错误边界接住，只塌那一块。边界**刻意不额外包一层 DOM**（正常路径直接返回 children），
+否则 8 个分区各自的 flex 布局都要重排；`Suspense` 放在边界内侧，这样动态 import 失败也会冒到同一个边界。
+App 用「分区 + 课程」当 key，切分区或换课程自然重挂载、错误态跟着清掉；计算台与实验台不属于任何一门课，
+所以不参与课程 key——否则换课程会把你正在算的式子和画了一半的图纸清光。
+分区懒加载顺带做了：入口 JS 从 883 kB 降到 247 kB（gzip 78 kB），KaTeX 所在的 429 kB 共享块只在含公式的分区挂载时才取。
+
 ## 工程实践
 
 - **BYOK 用 contextvar 做按请求覆盖**（`server/app/config.py`）：请求头里的 Key / Base URL / Model 只在该请求的
   上下文内生效，不改全局配置；头部值截断到 300 字符；`describe_runtime` 与 `/api/config` 只回答「服务端有没有配密钥」，
   永不回显密钥本身。中间件 `BYOKMiddleware` 是**原生 ASGI** 而非 `BaseHTTPMiddleware`——后者会缓冲响应，
   会破坏项目里大量使用的 SSE 流式输出。
-- **测试不依赖本机配置**：涉及密钥的用例用哨兵值 monkeypatch，315 个后端测试在任何没有 `.env` 的机器上
-  （包括 CI）都能离线通过；前端 425 个用例同理。
+- **测试不依赖本机配置**：涉及密钥的用例用哨兵值 monkeypatch，321 个后端测试在任何没有 `.env` 的机器上
+  （包括 CI）都能离线通过；前端 428 个用例同理。**碰到模块级 `db.engine` 的用例必须打补丁**——忘了打就会
+  连到真实的 `data/course_ta.db` 上动用户数据，这一点在 recovery 的测试里用 fixture 兜死了。
 - **CI 门禁**：后端 `uv sync → ruff check → pytest`，前端 `npm ci → oxlint → vitest → tsc -b && vite build`，两个 job。
 - **可移植性**：服务端与前端各有 Dockerfile，`docker-compose.yml` 用命名卷持久化 SQLite 与资料目录；
   文档默认面向本机 `localhost`，域名/反代只作为对外分享的进阶路径。
@@ -132,13 +149,13 @@ PATCH 若直接返回 ORM 对象，`page_count` 会退回表里的 0（列表口
 
 ```bash
 cd server
-uv run pytest -q          # 315 passed（无需 API key）
+uv run pytest -q          # 321 passed（无需 API key）
 uv run ruff check .       # 零告警
 uv run python -c "from app.main import app; print(sum(1 for p in app.openapi()['paths'].values() for m in p if m in {'get','post','put','patch','delete'}))"   # 57
 
 cd ../web
-npm run lint              # 60 个文件，0 warning 0 error
-npm test                  # 425 passed
+npm run lint              # 62 个文件，0 warning 0 error
+npm test                  # 428 passed
 ```
 
 接口细节见 [API.md](API.md)，部署见 [DEPLOY.md](DEPLOY.md)，功能全景见 [../README.md](../README.md)。

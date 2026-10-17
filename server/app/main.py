@@ -7,16 +7,18 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app import config, db
 from app.api import chat, compute, courses, exams, graph, labs, library, problems, review
+from app.core.recovery import reset_interrupted_jobs
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     db.init_db()
     compute.seed_formulas()
+    reset_interrupted_jobs()
     yield
 
 
-app = FastAPI(title="CourseTA API", version="0.15.0", lifespan=lifespan)
+app = FastAPI(title="CourseTA API", version="0.19.0", lifespan=lifespan)
 
 
 class BYOKMiddleware:

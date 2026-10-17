@@ -1,20 +1,23 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react'
 import type { Course } from './api'
 import { createCourse, listCourses, updateCourse } from './api'
 import CommandPalette from './components/CommandPalette'
 import { checkCourseName } from './components/rename'
 import type { Command } from './components/quickSearch'
+import SectionBoundary from './components/SectionBoundary'
 import SettingsPanel from './components/SettingsPanel'
-import LabPage from './components/LabPage'
 import type { LlmCredentials } from './llmKey'
 import { hasCredentials, loadCredentials } from './llmKey'
-import Bank from './sections/Bank'
-import Compute from './sections/Compute'
-import Exam from './sections/Exam'
-import Graph from './sections/Graph'
-import Library from './sections/Library'
-import Review from './sections/Review'
-import Trace from './sections/Trace'
+
+// 8 个分区各自一个 chunk：计算台的 KaTeX、实验台的仿真引擎、图谱的布局不该压在首屏上
+const LabPage = lazy(() => import('./components/LabPage'))
+const Bank = lazy(() => import('./sections/Bank'))
+const Compute = lazy(() => import('./sections/Compute'))
+const Exam = lazy(() => import('./sections/Exam'))
+const Graph = lazy(() => import('./sections/Graph'))
+const Library = lazy(() => import('./sections/Library'))
+const Review = lazy(() => import('./sections/Review'))
+const Trace = lazy(() => import('./sections/Trace'))
 
 type Tab = 'library' | 'bank' | 'review' | 'exam' | 'compute' | 'graph' | 'lab' | 'trace'
 
@@ -201,6 +204,70 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
+  const sectionLabel = TABS.find((t) => t.id === tab)?.label ?? '分区'
+  // 计算台与实验台不属于任何一门课，换课程时不该把它们重挂载（那会丢掉当前算式和图纸）
+  const boundaryKey = tab === 'compute' || tab === 'lab' ? tab : `${tab}:${activeCourseId ?? 'none'}`
+
+  const section =
+    tab === 'library' ? (
+      <Library
+        key={activeCourseId ?? 'none'}
+        courseId={activeCourseId}
+        jump={libraryJump}
+        onOpenProblem={(problemId) => {
+          setBankJump({ problemId, seq: ++jumpSeq.current })
+          setTab('bank')
+        }}
+      />
+    ) : tab === 'bank' ? (
+      <Bank key={activeCourseId ?? 'none'} courseId={activeCourseId} jump={bankJump} />
+    ) : tab === 'trace' ? (
+      <Trace
+        key={activeCourseId ?? 'none'}
+        courseId={activeCourseId}
+        onOpenProblem={(problemId) => {
+          setBankJump({ problemId, seq: ++jumpSeq.current })
+          setTab('bank')
+        }}
+        onOpenBank={() => setTab('bank')}
+      />
+    ) : tab === 'review' ? (
+      <Review
+        key={activeCourseId ?? 'none'}
+        courseId={activeCourseId}
+        onOpenProblem={(problemId) => {
+          setBankJump({ problemId, seq: ++jumpSeq.current })
+          setTab('bank')
+        }}
+      />
+    ) : tab === 'exam' ? (
+      <Exam
+        key={activeCourseId ?? 'none'}
+        courseId={activeCourseId}
+        onOpenProblem={(problemId) => {
+          setBankJump({ problemId, seq: ++jumpSeq.current })
+          setTab('bank')
+        }}
+      />
+    ) : tab === 'compute' ? (
+      <Compute />
+    ) : tab === 'lab' ? (
+      <LabPage />
+    ) : (
+      <Graph
+        key={activeCourseId ?? 'none'}
+        courseId={activeCourseId}
+        onJumpMaterial={(materialId, page, filename) => {
+          setLibraryJump({ materialId, page, filename, seq: ++jumpSeq.current })
+          setTab('library')
+        }}
+        onOpenProblem={(problemId) => {
+          setBankJump({ problemId, seq: ++jumpSeq.current })
+          setTab('bank')
+        }}
+      />
+    )
+
   return (
     <div className="app-shell">
       <nav className="topbar">
@@ -348,67 +415,11 @@ export default function App() {
 
       {notice && <div className="notice">{notice}</div>}
 
-      {tab === 'library' && (
-        <Library
-          key={activeCourseId ?? 'none'}
-          courseId={activeCourseId}
-          jump={libraryJump}
-          onOpenProblem={(problemId) => {
-            setBankJump({ problemId, seq: ++jumpSeq.current })
-            setTab('bank')
-          }}
-        />
-      )}
-      {tab === 'bank' && (
-        <Bank key={activeCourseId ?? 'none'} courseId={activeCourseId} jump={bankJump} />
-      )}
-      {tab === 'trace' && (
-        <Trace
-          key={activeCourseId ?? 'none'}
-          courseId={activeCourseId}
-          onOpenProblem={(problemId) => {
-            setBankJump({ problemId, seq: ++jumpSeq.current })
-            setTab('bank')
-          }}
-          onOpenBank={() => setTab('bank')}
-        />
-      )}
-      {tab === 'review' && (
-        <Review
-          key={activeCourseId ?? 'none'}
-          courseId={activeCourseId}
-          onOpenProblem={(problemId) => {
-            setBankJump({ problemId, seq: ++jumpSeq.current })
-            setTab('bank')
-          }}
-        />
-      )}
-      {tab === 'exam' && (
-        <Exam
-          key={activeCourseId ?? 'none'}
-          courseId={activeCourseId}
-          onOpenProblem={(problemId) => {
-            setBankJump({ problemId, seq: ++jumpSeq.current })
-            setTab('bank')
-          }}
-        />
-      )}
-      {tab === 'compute' && <Compute />}
-      {tab === 'lab' && <LabPage />}
-      {tab === 'graph' && (
-        <Graph
-          key={activeCourseId ?? 'none'}
-          courseId={activeCourseId}
-          onJumpMaterial={(materialId, page, filename) => {
-            setLibraryJump({ materialId, page, filename, seq: ++jumpSeq.current })
-            setTab('library')
-          }}
-          onOpenProblem={(problemId) => {
-            setBankJump({ problemId, seq: ++jumpSeq.current })
-            setTab('bank')
-          }}
-        />
-      )}
+      <SectionBoundary key={boundaryKey} section={sectionLabel}>
+        <Suspense fallback={<div className="section-loading">正在加载「{sectionLabel}」…</div>}>
+          {section}
+        </Suspense>
+      </SectionBoundary>
 
       {paletteOpen && (
         <CommandPalette commands={commands} onClose={() => setPaletteOpen(false)} />

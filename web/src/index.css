@@ -299,6 +299,58 @@ button.upload {
   border-bottom: 1px solid var(--warn-border);
 }
 
+/* ===== 分区懒加载占位与分区级错误边界 ===== */
+
+.section-loading {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.section-error {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 20px 24px;
+  padding: 18px 20px;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--danger-bg);
+}
+
+.section-error-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--danger-text);
+}
+
+.section-error-hint {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-2);
+}
+
+.section-error-detail {
+  margin: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--surface);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-2);
+  white-space: pre-wrap;
+}
+
 .message {
   display: flex;
   flex-direction: column;
