@@ -12,7 +12,8 @@ export interface SlotNode {
   k: 'slot'
   field: SlotField
   label: string // aria-label：同一个 point 在极限里是「趋近值」，在留数里是「奇点」
-  hint: string // 空值时显示的示例
+  hint: string // 输入框里的示例
+  hintTex: string // 未填写时式子里显示的数学占位
   numeric?: boolean
 }
 
@@ -61,35 +62,71 @@ const HINTS: Record<SlotField, string> = {
   order: '1',
 }
 
+/**
+ * 没填的时候式子里显示什么——必须与后端 evaluate() 的默认值一致：
+ * var 空 → x、point 空 → 0、order 空 → 1；上下限空 **不是** ±∞，而是不定积分，
+ * 所以那两个槽留空（渲染成空框）并由 liveNotes 说明，免得预览骗人。
+ */
+const HINT_TEX: Record<SlotField, string> = {
+  variable: 'x',
+  point: '0',
+  lower: '',
+  upper: '',
+  order: '1',
+}
+
+/** 空值的真实含义，显示在算式后面（只有后端行为与「看起来的意思」不同才需要）。 */
+const EMPTY_NOTES: Partial<Record<SlotField, string>> = {
+  lower: '上下限不填就是不定积分',
+  upper: '上下限不填就是不定积分',
+}
+
 const slot = (field: SlotField, label?: string): SlotNode => ({
   k: 'slot',
   field,
   label: label ?? LABELS[field],
   hint: HINTS[field],
+  hintTex: HINT_TEX[field],
   ...(field === 'order' ? { numeric: true } : {}),
 })
 
 const tex = (value: string): TexNode => ({ k: 'tex', tex: value })
 const text = (value: string): TextNode => ({ k: 'text', t: value })
 const EXPR: ExprNode = { k: 'expr' }
+/** 只有上标的角标组（用于 d^{n} 这种纯上标）。 */
+const supOf = (...nodes: LiveNode[]): ScriptNode => ({ k: 'scripts', base: [], sup: nodes })
 
-/** d/d[x]（或 ∂/∂[x]）+ 一个始终可改的阶数槽：填 1 就是一阶，不会出现「想升阶却没有入口」。 */
+/**
+ * `\frac{d^{[n]}}{d[x]^{[n]}}`：阶数槽在分子分母各出现一次，改哪一处都写回同一个值——
+ * 既保证「想升阶永远有入口」，也不用在式子旁边另找输入框。
+ */
 function derivative(glyph: string): LiveNode[] {
   const symbol = tex(glyph)
   return [
-    { k: 'frac', num: [symbol], den: [symbol, slot('variable')] },
+    {
+      k: 'frac',
+      num: [symbol, supOf(slot('order'))],
+      den: [symbol, slot('variable'), supOf(slot('order'))],
+    },
+    tex('('),
     EXPR,
-    text('求'),
-    slot('order'),
-    text('阶'),
+    tex(')'),
   ]
 }
 
-/** 变换类：ℒ[ f ] 对 t。逆傅里叶不吃变量，槽位也就不能出现。 */
+/** 变换类：`\mathcal{L}_{[t]}( f )`。逆傅里叶不吃变量，槽位也就不能出现。 */
 function transform(name: string, inverse: boolean, withVariable: boolean): LiveNode[] {
-  const glyph = inverse ? `\\mathcal{${name}}^{-1}` : `\\mathcal{${name}}`
-  const nodes: LiveNode[] = [tex(glyph), text('（'), EXPR, text('）')]
-  if (withVariable) nodes.push(text('对'), slot('variable'))
+  const nodes: LiveNode[] = [
+    {
+      k: 'scripts',
+      base: [tex(`\\mathcal{${name}}`)],
+      sub: withVariable ? [slot('variable')] : undefined,
+      sup: inverse ? [tex('-1')] : undefined,
+    },
+    tex('('),
+    EXPR,
+    tex(')'),
+  ]
   return nodes
 }
 
@@ -103,7 +140,7 @@ export function liveMath(op: string): LiveNode[] {
       return [
         { k: 'scripts', base: [tex('\\int')], sub: [slot('lower')], sup: [slot('upper')] },
         EXPR,
-        tex('d'),
+        tex('\\,d'),
         slot('variable'),
       ]
     case 'limit':
@@ -170,9 +207,33 @@ export function liveFields(nodes: LiveNode[]): SlotField[] {
   return liveSlots(nodes).map((s) => s.field)
 }
 
+/** 空着不填会改变算法（而不只是取个默认值）时，给一句说明。 */
+export function liveNotes(nodes: LiveNode[], values: Record<SlotField, string>): string[] {
+  const notes: string[] = []
+  for (const s of liveSlots(nodes)) {
+    const note = EMPTY_NOTES[s.field]
+    if (note && !values[s.field].trim() && !notes.includes(note)) notes.push(note)
+  }
+  return notes
+}
+
 /** 阶数是数字槽：只认数字、限幅 1..20，清空算 1。 */
 export function clampOrder(raw: string): number {
   const digits = raw.replace(/\D/g, '')
   if (!digits) return 1
   return Math.min(20, Math.max(1, Number(digits)))
+}
+
+/**
+ * 把槽位里的文本转成可以直接交给 KaTeX 的源码，让参数以数学体长在式子里。
+ * 返回空串表示这里就是空的（渲染成空框）——上下限空着不代表 ±∞，而是不定积分。
+ */
+export function slotTex(field: SlotField, raw: string): string {
+  const value = raw.trim()
+  if (!value) return HINT_TEX[field]
+  const infinity = value.match(/^([+-]?)oo$/i)
+  if (infinity) return `${infinity[1] || ''}\\infty`
+  // 中文之类按文本排版；花括号要摘掉，否则 \text{} 会提前闭合（后端仍收到原始文本）
+  if (/[^\x20-\x7f]/.test(value)) return `\\text{${value.replaceAll(/[{}]/g, '')}}`
+  return value
 }

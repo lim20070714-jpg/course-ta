@@ -2116,43 +2116,53 @@ button.citation:hover:not(:disabled) {
   margin: 2px 0;
 }
 
-/* ---------- 计算台：实时预览即控件 ---------- */
+/* ---------- 计算台：预览即算式，参数是式子里可点的那个数 ---------- */
 .cmp-live {
   border-style: solid;
   border-color: var(--accent-border);
   background: var(--accent-softer);
 }
 
+/* 按文本流排版而不是 flex：flex 会把分子、分母、中文挤成基线错位的几行。 */
 .live-row {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 2px;
-  min-height: 30px;
-  font-size: 16px;
-}
-
-.live-row .pv-expr {
-  display: inline-flex;
-  align-items: center;
-  max-width: 100%;
-}
-
-/* RichText 会把公式包进 <p>，嵌进算式行里要去掉段落间距 */
-.pv-expr p {
-  margin: 0;
-  display: inline;
+  font-size: 16.5px;
+  line-height: 2;
+  overflow-wrap: anywhere;
 }
 
 .pv-text {
   color: var(--text-3);
-  font-size: 12.5px;
-  margin: 0 2px;
+  font-size: 0.78em;
+  margin: 0 3px;
+}
+
+.pv-blank {
+  color: var(--muted);
+  font-style: italic;
+  font-size: 0.82em;
+  border-bottom: 1px dashed var(--border-strong);
+  padding: 0 8px;
 }
 
 .pv-scripts {
   display: inline-flex;
   align-items: center;
+  vertical-align: middle;
+}
+
+/* 单侧角标要真的抬起来 / 沉下去，否则 d²/dx² 里的 2 会跟正文一样高。
+   偏移只作用于角标那一列，挪整个 .pv-scripts 会把 \lim 这样的基座一起带走。 */
+.pv-scripts.pv-sup .pv-sscript,
+.pv-scripts.pv-sub .pv-sscript {
+  position: relative;
+}
+
+.pv-scripts.pv-sup .pv-sscript {
+  top: -0.5em;
+}
+
+.pv-scripts.pv-sub .pv-sscript {
+  top: 0.35em;
 }
 
 .pv-sscript {
@@ -2160,7 +2170,7 @@ button.citation:hover:not(:disabled) {
   flex-direction: column;
   justify-content: center;
   margin-left: 1px;
-  font-size: 0.72em;
+  font-size: 0.8em;
   line-height: 1.25;
 }
 
@@ -2168,7 +2178,12 @@ button.citation:hover:not(:disabled) {
   display: inline-flex;
   flex-direction: column;
   align-items: center;
+  vertical-align: middle;
   margin-right: 3px;
+}
+
+.pv-script-line {
+  line-height: 1.25;
 }
 
 .pv-frac .pv-script-line:first-child {
@@ -2180,38 +2195,78 @@ button.citation:hover:not(:disabled) {
   padding: 1px 3px 0;
 }
 
+/* 未填：虚线，显示的是示例值；已填：实线，一眼区分「还没设过」和「就是这个数」。 */
 .pv-slot {
   font: inherit;
-  font-size: 0.78em;
-  padding: 1px 3px;
-  text-align: center;
+  padding: 0 2px;
+  line-height: 1.15;
+  vertical-align: baseline;
   color: var(--accent-strong);
-  background: var(--surface);
-  border: 1px dashed var(--accent-border);
-  border-radius: 6px;
-  outline: none;
-  transition: border-color var(--dur-1) var(--ease-out), box-shadow var(--dur-1) var(--ease-out);
+  background: none;
+  border: none;
+  border-bottom: 1px dashed var(--accent-ring);
+  border-radius: 0 0 5px 5px;
+  cursor: pointer;
+  transition: background var(--dur-1) var(--ease-out), border-color var(--dur-1) var(--ease-out);
+}
+
+.pv-slot.filled {
+  border-bottom-style: solid;
+}
+
+/* 真的没填：一个空心虚线框，不拿 ±∞ 之类的示例值冒充参数 */
+.pv-slot-blank {
+  display: inline-block;
+  position: relative;
+  min-width: 2.4ch;
+  min-height: 15px;
+  border: 1px dashed var(--accent-ring);
+  border-radius: 5px;
+}
+
+/* 角标里的槽会被 .pv-sscript 再缩一号，用伪元素把可点区域扩到 ~24px，视觉仍是那个空心小框。 */
+.pv-slot-blank::before {
+  content: '';
+  position: absolute;
+  inset: -6px -5px;
+}
+
+.pv-slot-blank:hover {
+  border-color: var(--accent);
+}
+
+.pv-note {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--muted);
 }
 
 .pv-slot:hover {
-  border-color: var(--accent-ring);
+  background: var(--surface);
+  border-bottom-color: var(--accent);
 }
 
-.pv-slot:focus {
-  border-style: solid;
-  border-color: var(--accent);
+.pv-slot:focus-visible {
+  outline: none;
   box-shadow: var(--focus-ring);
 }
 
-.pv-slot::placeholder {
-  color: var(--muted);
-  opacity: 0.75;
+/* 点击进入编辑态：这时才出现真正的输入框。 */
+.pv-slot-edit {
+  text-align: center;
+  font-size: 0.95em;
+  min-width: 4ch;
+  padding: 0 3px;
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: 7px;
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 
-.cmp-live-blank {
+.pv-slot-edit::placeholder {
   color: var(--muted);
-  font-style: italic;
-  font-size: 13px;
+  opacity: 0.8;
 }
 
 .compute-controls {

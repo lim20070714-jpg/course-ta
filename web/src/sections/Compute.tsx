@@ -11,7 +11,7 @@ import {
 } from '../api'
 import RichText from '../components/RichText'
 import LiveMath from '../components/LiveMath'
-import { clampOrder, liveFields, liveMath, type SlotField } from '../compute/liveMath'
+import { clampOrder, liveFields, liveMath, liveNotes, type SlotField } from '../compute/liveMath'
 import {
   argSummary,
   dedupeRuns,
@@ -65,6 +65,7 @@ export default function Compute() {
   const [busy, setBusy] = useState(false)
   const [copied, setCopied] = useState('')
   const [history, setHistory] = useState<ComputeRun[]>([])
+  const [moreSymbols, setMoreSymbols] = useState(false)
   const [historyTotal, setHistoryTotal] = useState(0)
   const [usedRun, setUsedRun] = useState<ComputeRun | null>(null)
   const exprRef = useRef<HTMLTextAreaElement>(null)
@@ -403,7 +404,7 @@ export default function Compute() {
             <span className="compute-hint">
               {needs.matrix
                 ? '矩阵输入：[[1,2],[3,4]] 或 \\begin{pmatrix}1&2\\\\3&4\\end{pmatrix}，也可把公式库里的矩阵公式整行粘进来'
-                : '支持 LaTeX 或普通语法（如 2x、x^3、exp(-2t)）；定积分的上下限、变量、展开点都在下面的实时预览里直接改，傅里叶变换按 ω 约定'}
+                : '支持 LaTeX 或普通语法（2x、x^3、exp(-2t)）；上下限 / 变量 / 展开点 / 阶数不用另找输入框，在下面那条算式里点着改就行，傅里叶变换按 ω 约定'}
             </span>
           </div>
           <textarea
@@ -419,42 +420,6 @@ export default function Compute() {
               if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) run()
             }}
           />
-          <div className="chip-row">
-            {QUICK_SYMBOLS.map((s) => (
-              <button key={s} className="chip mono" onClick={() => insert(s)} title={`插入 ${s}`}>
-                {symbolLabel(s)}
-              </button>
-            ))}
-            {needs.matrix &&
-              MATRIX_TEMPLATES.map((t) => (
-                <button
-                  key={t.label}
-                  className="chip mono"
-                  onClick={() => insert(t.text)}
-                  title={`插入 ${t.label}`}
-                >
-                  {t.label}
-                </button>
-              ))}
-          </div>
-          {(expr.trim() || hasSlots) && (
-            <div className="compute-preview cmp-preview cmp-live">
-              <span className="preview-label">实时预览 · 参数直接在式子里改</span>
-              <LiveMath
-                nodes={liveNodes}
-                values={slotValues}
-                expr={
-                  expr.trim() ? (
-                    <RichText text={toPreviewTex(expr)} />
-                  ) : (
-                    <span className="cmp-live-blank">表达式</span>
-                  )
-                }
-                onSlot={setSlot}
-                onRun={run}
-              />
-            </div>
-          )}
           <div className="compute-controls">
             <label>
               操作
@@ -490,6 +455,42 @@ export default function Compute() {
               </button>
               <span className="cmp-kbd-hint">Ctrl/⌘ + ↵</span>
             </span>
+          </div>
+          {(expr.trim() || hasSlots) && (
+            <div className="compute-preview cmp-preview cmp-live">
+              <span className="preview-label">要算的式子 · 点带下划线的值就能改参数</span>
+              <LiveMath
+                nodes={liveNodes}
+                values={slotValues}
+                exprTex={expr}
+                notes={liveNotes(liveNodes, slotValues)}
+                onSlot={setSlot}
+                onRun={run}
+              />
+            </div>
+          )}
+          <div className="chip-row">
+            {(moreSymbols ? QUICK_SYMBOLS : QUICK_SYMBOLS.slice(0, 10)).map((s) => (
+              <button key={s} className="chip mono" onClick={() => insert(s)} title={`插入 ${s}`}>
+                {symbolLabel(s)}
+              </button>
+            ))}
+            {needs.matrix &&
+              MATRIX_TEMPLATES.map((t) => (
+                <button
+                  key={t.label}
+                  className="chip mono"
+                  onClick={() => insert(t.text)}
+                  title={`插入 ${t.label}`}
+                >
+                  {t.label}
+                </button>
+              ))}
+            {QUICK_SYMBOLS.length > 10 && (
+              <button className="chip" aria-expanded={moreSymbols} onClick={() => setMoreSymbols((v) => !v)}>
+                {moreSymbols ? '收起符号' : `＋ 符号 ${QUICK_SYMBOLS.length - 10}`}
+              </button>
+            )}
           </div>
         </div>
 
