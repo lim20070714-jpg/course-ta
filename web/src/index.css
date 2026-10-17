@@ -622,7 +622,9 @@ button.ghost-btn:hover:not(:disabled) {
 }
 
 .material-list li {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 4px;
   padding: 0;
 }
 
@@ -630,7 +632,8 @@ button.ghost-btn:hover:not(:disabled) {
   display: flex;
   align-items: center;
   gap: 6px;
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   text-align: left;
   font-size: 13px;
   padding: 5px 6px;
@@ -648,6 +651,44 @@ button.ghost-btn:hover:not(:disabled) {
 .material-item.active {
   background: var(--accent-soft);
   border-color: var(--accent-border);
+}
+
+/* 删除按钮平时淡出，鼠标移到该行或键盘聚焦时才浮现，避免整列都是红色按钮 */
+.material-del {
+  font-size: 12px;
+  padding: 3px 8px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: none;
+  color: var(--danger-text);
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity var(--dur-1) var(--ease-out),
+    background var(--dur-1) var(--ease-out);
+}
+
+.material-list li:hover .material-del,
+.material-list li:focus-within .material-del,
+.material-del:focus-visible {
+  opacity: 1;
+}
+
+.material-del:hover:not(:disabled) {
+  background: var(--danger-bg);
+  border-color: var(--danger-border);
+}
+
+.material-del:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* 触屏没有悬停：按钮常显 */
+@media (hover: none) {
+  .material-del {
+    opacity: 0.8;
+  }
 }
 
 .lib-main {

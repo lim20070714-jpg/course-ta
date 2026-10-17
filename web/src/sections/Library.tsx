@@ -14,6 +14,7 @@ import {
   KIND_LABELS,
   MATERIAL_ACCEPT,
   MATERIAL_FORMAT_HINT,
+  deleteMaterial,
   extractProblems,
   getMaterialSummary,
   listMaterials,
@@ -90,6 +91,7 @@ export default function Library({
   const [materials, setMaterials] = useState<Material[]>([])
   const [filter, setFilter] = useState('')
   const [notice, setNotice] = useState('')
+  const [deleting, setDeleting] = useState<number | null>(null)
   const [uploadKind, setUploadKind] = useState('auto')
   const [collapsed, setCollapsed] = useState<Set<ZoneKind>>(loadCollapsed)
   // 折叠是一次性读取（懒初始化），之后每次变化写回 localStorage 做持久化
@@ -394,6 +396,34 @@ export default function Library({
     }
   }
 
+  // 删除是破坏性操作：先确认；「由这份资料切出的题目」保留下来，所以删完还要把保留了什么说清楚。
+  async function dropMaterial(m: Material) {
+    if (courseId === null || deleting !== null) return
+    const keepNote = m.kind === 'exam' ? '已经切割出的题目会保留在题库里。' : ''
+    if (!window.confirm(`删除《${m.filename}》？它的知识块、总结与原页图会一起清除，无法恢复。${keepNote}`))
+      return
+    setDeleting(m.id)
+    setNotice('')
+    try {
+      const result = await deleteMaterial(m.id)
+      if (current?.id === m.id) {
+        setCurrent(null)
+        setDoc(null)
+        setSummary(null)
+      }
+      refresh(courseId)
+      setNotice(
+        result.problems_kept > 0
+          ? `已删除《${result.filename}》与 ${result.chunks_removed} 个知识块；由它切出的 ${result.problems_kept} 道题仍保留在题库。`
+          : `已删除《${result.filename}》与 ${result.chunks_removed} 个知识块。`,
+      )
+    } catch (e) {
+      setNotice((e as Error).message)
+    } finally {
+      setDeleting(null)
+    }
+  }
+
   async function changeKind(kind: string) {
     if (!current || kind === current.kind) return
     try {
@@ -551,6 +581,14 @@ export default function Library({
                             <span className="material-status">
                               {m.status === 'ready' ? `${m.chunk_count} 块` : statusText(m.status)}
                             </span>
+                          </button>
+                          <button
+                            className="material-del"
+                            title={`删除《${m.filename}》及其知识块${m.kind === 'exam' ? '（题库里已切出的题目会保留）' : ''}`}
+                            disabled={deleting !== null}
+                            onClick={() => void dropMaterial(m)}
+                          >
+                            {deleting === m.id ? '删除中…' : '删除'}
                           </button>
                         </li>
                       ))}

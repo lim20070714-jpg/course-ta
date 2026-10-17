@@ -46,6 +46,13 @@ class MaterialKindUpdate(BaseModel):
     kind: str
 
 
+class MaterialDeleteResult(BaseModel):
+    status: str = "deleted"
+    filename: str
+    chunks_removed: int
+    problems_kept: int  # 由这份资料抽出、但被保留下来的题目数
+
+
 class PageOut(BaseModel):
     page: int
     text: str

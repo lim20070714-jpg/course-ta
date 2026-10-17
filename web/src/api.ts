@@ -292,6 +292,19 @@ export const createCourse = (name: string) =>
 export const listMaterials = (courseId: number) =>
   apiFetch(`/api/courses/${courseId}/materials`).then((r) => json<Material[]>(r))
 
+/** 删除资料的结果：资料与其知识块已清除，由它抽取的题目保留（只断开来源）。 */
+export interface MaterialDeleteResult {
+  status: string
+  filename: string
+  chunks_removed: number
+  problems_kept: number
+}
+
+export const deleteMaterial = (materialId: number) =>
+  apiFetch(`/api/materials/${materialId}`, { method: 'DELETE' }).then((r) =>
+    json<MaterialDeleteResult>(r),
+  )
+
 export const materialPages = (materialId: number, offset = 0, limit = 20) =>
   apiFetch(`/api/materials/${materialId}/pages?offset=${offset}&limit=${limit}`).then((r) =>
     json<MaterialPages>(r),

@@ -147,6 +147,11 @@ curl -N -X POST http://127.0.0.1:8000/api/chat \
 | GET | `/api/courses/{course_id}/materials` | 课程下的材料列表（含 `status`、`page_count`、`image_pages`） |
 | POST | `/api/courses/{course_id}/materials` | 上传材料，`multipart/form-data`：`file` + `kind`（默认 `auto`）。**立即返回**，解析在后台任务里跑 |
 | PATCH | `/api/materials/{material_id}` | 修改材料类型，body `{"kind"}` |
+| DELETE | `/api/materials/{material_id}` | 删除材料：知识块、笔记与原文件/原页图一并清除，返回 `{"status":"deleted","filename","chunks_removed","problems_kept"}` |
+
+- `DELETE` 的保留语义：由这份材料切出的**题目会留下**（`material_id` 置空），因为作答记录、错题本、复习卡与模考成绩都挂在题目上；
+  代价是这些题不再有「原题原页图」。知识图谱的概念出处同理置空，脉络本身不动。
+- 材料正在后台处理（入库 / 生成笔记 / 拆题）时删除会返回 `409`，等它跑完再删——否则后台会把结果写回一个已经不存在的材料。
 
 - 支持的后缀：`.pdf`、`.pptx`、`.docx`、`.txt`、`.md`、图片（`.png .jpg .jpeg .webp .gif .bmp .tif .tiff`）。
 - `kind` 取值：`auto`（按文件名猜）、`textbook`（教材）、`slides`（课件）、`handout`（讲义）、

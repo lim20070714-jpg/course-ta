@@ -1,18 +1,26 @@
+import shutil
 import time
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Form, HTTPException, UploadFile
 from sqlalchemy import func
-from sqlmodel import Session, select
+from sqlmodel import Session, delete, select
 
 from app import db
 from app.config import settings
 from app.core import media
 from app.core import problems as problems_core
+from app.core import summary as summary_core
 from app.core.ingest import ingest_material
 from app.core.kinds import VALID_KINDS, detect_kind
-from app.models import Chunk, Course, Material
-from app.schemas import CourseCreate, CourseRead, MaterialKindUpdate, MaterialRead
+from app.models import Chunk, Concept, Course, Material, Problem, Summary
+from app.schemas import (
+    CourseCreate,
+    CourseRead,
+    MaterialDeleteResult,
+    MaterialKindUpdate,
+    MaterialRead,
+)
 
 router = APIRouter(tags=["courses"])
 
@@ -126,3 +134,55 @@ def update_material_kind(material_id: int, payload: MaterialKindUpdate) -> Mater
         session.commit()
         session.refresh(material)
         return material
+
+
+@router.delete("/materials/{material_id}", response_model=MaterialDeleteResult)
+def delete_material(material_id: int) -> MaterialDeleteResult:
+    """删除一份资料：知识块、总结与磁盘上的原件/原页图一起清掉。
+
+    从它抽出来的题目**保留**（只断开来源）：题目上挂着作答记录、错题本、复习卡与
+    模考引用，连着删就是删掉学习历史；代价是这些题不再有「原题原页图」。
+    图谱概念的出处同理置空，脉络本身不动。
+
+    后台处理中不允许删：解析/拆题/总结任务会在删除之后把结果写回来，留下无主的孤儿数据。
+    """
+    with Session(db.engine) as session:
+        material = session.get(Material, material_id)
+        if material is None:
+            raise HTTPException(404, "材料不存在")
+        busy = material.status in ("pending", "ingesting")
+        busy = busy or summary_core.job_status(material_id)["status"] == "generating"
+        busy = busy or problems_core.job_status(material_id)["status"] == "running"
+        if busy:
+            raise HTTPException(409, "这份资料还在后台处理（入库 / 总结 / 拆题），等它完成后再删除。")
+
+        chunks_removed = session.exec(
+            select(func.count(Chunk.id)).where(Chunk.material_id == material_id)
+        ).one()
+        problems_kept = session.exec(
+            select(func.count(Problem.id)).where(Problem.material_id == material_id)
+        ).one()
+        stored_path = material.stored_path
+        session.exec(delete(Chunk).where(Chunk.material_id == material_id))
+        session.exec(delete(Summary).where(Summary.material_id == material_id))
+        for problem in session.exec(
+            select(Problem).where(Problem.material_id == material_id)
+        ).all():
+            problem.material_id = None
+            session.add(problem)
+        for concept in session.exec(
+            select(Concept).where(Concept.material_id == material_id)
+        ).all():
+            concept.material_id = None
+            session.add(concept)
+        filename = material.filename
+        session.delete(material)
+        session.commit()
+
+    Path(stored_path).unlink(missing_ok=True)
+    shutil.rmtree(media.media_dir(settings.data_dir, material_id), ignore_errors=True)
+    return MaterialDeleteResult(
+        filename=filename,
+        chunks_removed=int(chunks_removed),
+        problems_kept=int(problems_kept),
+    )

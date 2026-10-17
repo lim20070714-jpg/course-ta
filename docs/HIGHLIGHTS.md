@@ -15,15 +15,15 @@ LLM 只做支撑（抽取、批改、总结、图谱归纳），学生始终在�
 | 指标 | 值 |
 | --- | --- |
 | 主界面分区 | 7 个（⌘1..7 与命令面板直达） |
-| 后端 API operation | 47 个（覆盖 37 条路径），OpenAPI 自动生成 |
-| 自动化测试 | **602** 个：后端 253（pytest，全部离线）+ 前端 349（Vitest，14 个文件） |
+| 后端 API operation | 48 个（覆盖 38 条路径），OpenAPI 自动生成 |
+| 自动化测试 | **610** 个：后端 261（pytest，全部离线）+ 前端 349（Vitest，14 个文件） |
 | 静态检查 | ruff + tsc + oxlint 零告警；CI 2 个 job（后端 / 前端）全绿 |
-| 代码规模 | 约 30.8k 行：后端 `server/app` 5,838、`server/tests` 3,147、前端 `web/src` ts/tsx 16,129、`web/src/index.css` 5,661 |
+| 代码规模 | 约 31.1k 行：后端 `server/app` 5,905、`server/tests` 3,324、前端 `web/src` ts/tsx 16,180、`web/src/index.css` 5,702 |
 | 自托管 | `docker-compose` 一键；前端 nginx 静态托管 + 反向代理；默认 `http://localhost:8080` |
 | 密钥模式 | BYOK：用户填自己的 Key，服务端可完全不留密钥 |
 | 许可 | MIT |
 
-## 五个真正的技术难点
+## 六个真正的技术难点
 
 **1. 试卷 / 课件 PDF 的版面级还原（`server/app/core/ingest.py`、`glyph_tables.py`、`crops.py`）**
 课件里的公式多是 MathType/Wingdings 嵌入的匿名子集字体，ToUnicode 映射丢失，PyMuPDF 只能回退成
@@ -60,6 +60,15 @@ PDF 拆成一行只有两三个字的碎片。管线因此分四步：按 span �
 整卷可能几分钟），进度与逐题判定分别放在进程内任务表和数据库里，服务重启只丢进度不丢成绩。
 做错的题同步写入 Attempt，于是模考里的错题自然进入错题本和复习计划。
 
+**6. 删除资料时的「删什么、留什么」（`server/app/api/courses.py`，测试 8 个）**
+一份材料连着四层数据：原文件与页图、知识块与向量、学习总结、从它切出来的题目。
+题目上还挂着作答记录、错题本、复习卡与模考成绩，所以删除按数据的所有权分层：
+材料本体、知识块、总结、磁盘上的原件与页图一并清除；题目与概念只把 `material_id` 置空——
+练过的题不会因为一次误删而消失，代价只是不再有「原题原页图」。
+另一个坑是 SQLite 的 rowid 复用：材料删掉后新上传可能拿到同一个 id，如果此时还有在跑的后台任务
+（解析 / 总结 / 拆题）把结果写回来，脏数据就会「认领」到新材料身上。
+因此删除接口在任务进行中直接返回 409，而不是先删行再指望任务自己发现材料没了。
+
 ## 工程实践
 
 - **BYOK 用 contextvar 做按请求覆盖**（`server/app/config.py`）：请求头里的 Key / Base URL / Model 只在该请求的
@@ -75,16 +84,16 @@ PDF 拆成一行只有两三个字的碎片。管线因此分四步：按 span �
 
 ## 真实数据规模（本地实例，未入库）
 
-52 份课程材料 / 15,274 个知识块 / 221 道结构化题目 / 64 个概念、192 条关系边。
-平台不是为演示造的玩具，而是自己每周真在用、并被这些真实数据压过一遍的。
+截至 2026-10-17：3 门课、60 份材料 / 约 1.6 万个知识块 / 250 道结构化题目 / 64 个概念、192 条关系边。
+平台不是为演示造的玩具，而是自己每周真在用、并被这些真实数据压过一遍的——数字还会继续长。
 
 ## 复现这些数字
 
 ```bash
 cd server
-uv run pytest -q          # 253 passed（无需 API key）
+uv run pytest -q          # 261 passed（无需 API key）
 uv run ruff check .       # 零告警
-uv run python -c "from app.main import app; print(sum(1 for p in app.openapi()['paths'].values() for m in p if m in {'get','post','put','patch','delete'}))"   # 47
+uv run python -c "from app.main import app; print(sum(1 for p in app.openapi()['paths'].values() for m in p if m in {'get','post','put','patch','delete'}))"   # 48
 
 cd ../web
 npm run lint              # 49 个文件，0 warning 0 error
