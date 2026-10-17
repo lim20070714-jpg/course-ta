@@ -1,7 +1,8 @@
 # CourseTA 自托管部署指南
 
-CourseTA 是一个「带出处引用的课程 AI 助教」：上传课件/教材/试题后可以问答、检索、抽题、批改、
-做知识图谱和复习计划。本文档覆盖三种自托管路径，以及**密钥与费用**、**数据备份**、**安全**。
+CourseTA 把课程材料解析入库后提供检索、总结、知识图谱、题库与步骤级批改、复习与模考、符号计算和电路仿真
+（分区说明见 [../README.md](../README.md)）。本文档覆盖三条自托管路径，以及**密钥与额度归属**、
+**数据备份与恢复**、**安全清单**、**升级与发布**（§8）。
 
 ## 0. 三条路径怎么选
 
@@ -303,6 +304,8 @@ docker compose up -d
 | 问答报「未配置 LLM_API_KEY」 | 服务端没配且请求没带 `X-LLM-API-Key`；要么在页面里填自己的密钥，要么在 `server/.env` 配 |
 | 问答报「未配置向量模型」 | 检索需要 embeddings；配 `EMBEDDING_*`，或让请求带上可用的 BYOK 密钥 |
 | 材料一直 `pending`/`ingesting` 然后 `failed` | 看 `error` 字段与 `docker compose logs -f api`：通常是向量模型不可用或额度不足 |
+| 重启后资料 / 总结 / 图谱停在「进行中」，改名与删除一直 409 | v0.19 起启动时自动复位（`server/app/core/recovery.py`）：这些行会转成 `failed` 并在 `error` 里写明补救动作，模考退回可继续作答。若仍卡住，说明实例跑的是旧镜像，重新 build |
+| 升级后某个分区显示「这个分区出错了」 | 分区按路由懒加载，浏览器里的旧 index.html 还在引用已被替换的 chunk 文件名。硬刷新（Ctrl+Shift+R）即可；错误边界只塌那一个分区，数据未受影响 |
 | `uv sync --frozen` 报 lock 过期 | 镜像里的 uv 版本与生成 `uv.lock` 的版本不一致；用相同版本，或在本地 `uv lock` 后提交新 lock |
 | 8080 端口被占用 | 改 `docker-compose.yml` 里 web 的 `ports: ["8081:80"]`，并用外层反代指向新端口 |
 | 想换数据库/材料存放位置 | 不要改容器内的 `DATA_DIR`，改卷映射（`volumes:`）即可 |
@@ -343,6 +346,60 @@ docker compose up -d
 >   `uvicorn --port 8000`（开发时的常见状态）就会 `ports are not available` 导致整个编排起不来。
 >   现已默认不发布该端口（web 容器通过 compose 内网 `api:8000` 访问），需要时再手动打开注释。
 > - 国内拉取 Docker Hub 的注意事项见下节。
+
+## 8. 升级到新版本与发布
+
+### 8.1 升级一份已部署的实例
+
+```bash
+# 0) 先备份（见 §4）：停 api → 打包卷 → 再操作
+git fetch --tags && git status --short          # 确认本地没有未提交的改动
+git checkout v0.19.0                            # 或 git pull 到 main
+
+cd server && uv sync                            # 依赖变化时才会重新解析
+cd ../web  && npm ci && npm run build           # 产物在 web/dist
+
+# Docker 路径
+docker compose build && docker compose up -d    # 命名卷不受影响，数据保留
+
+# 本机 uvicorn 路径：Ctrl+C 停掉再重新起
+uv run uvicorn app.main:app --port 8000
+```
+
+要点：
+
+- **数据库结构由启动时的 `init_db()` 建立**，没有单独的迁移步骤；新增列随 SQLModel 元数据建表，历史数据不动。若改了已有列的语义，先按 §4 备份再升。
+- **预置公式随版本自动迁移**（`compute.seed_formulas()`），自己新增或编辑过的公式不会被覆盖。
+- **启动时会做一次状态复位**（v0.19 起）：上一版遗留的 `ingesting` / `generating` / `grading` 会被收成可操作状态（前三者转 `failed` 并写 `error`，模考退回 `running`）。这是一次性写库操作，容器重建后第一次启动同样会跑。
+- 前端已按分区懒加载，升级后浏览器需要**硬刷新**，否则旧 `index.html` 会引用已经不存在的 chunk 文件名，表现是某个分区报错误边界（数据无影响）。
+- 验证升级结果：
+
+```bash
+curl -s localhost:8000/api/health              # {"status":"ok"}
+curl -s localhost:8000/api/config | head -c 200 # version 与 server_key_configured
+docker compose ps                              # api healthy / web 8080
+```
+
+### 8.2 发布一个版本（维护者）
+
+```bash
+# 1) 全量验证：任何一步红就别打 tag
+cd server && uv run pytest -q && uv run ruff check app tests
+cd ../web  && npx tsc -b && npx oxlint src && npm run build
+
+# 2) 文档口径同步：README 表格、CHANGELOG.md、docs/HIGHLIGHTS.md 的测试数与体积
+git add -p && git commit -m "feat: v0.20 …"     # 提交风格 feat: v0.xx …
+git push
+
+# 3) 版本号写进 FastAPI（server/app/main.py 的 version=），与 tag 保持一致
+git tag -a v0.20.0 -m "v0.20.0"
+git push origin v0.20.0
+
+# 4) Release 说明从 CHANGELOG.md 对应小节复制
+gh release create v0.20.0 --title "v0.20.0" --notes-file NOTES.md
+```
+
+Release 说明建议包含：本次变更要点（1 条 1 行）、升级注意事项（是否有启动复位 / 依赖变化 / 需要硬刷新）、测试与构建口径（用例数、入口 JS 体积）、以及「无破坏性变更 / 数据字段变化」的明确声明。仓库不使用 CI 自动发布，Release 由维护者手动创建。
 
 ## 附：Docker 空实例的用途与数据管理
 
