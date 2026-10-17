@@ -3,7 +3,7 @@
 # 详细步骤见 docs/DEPLOY.md。最简流程：
 #   1) cp server/.env.example server/.env   # 填 LLM_* / EMBEDDING_* / CORS_ORIGINS
 #   2) docker compose up -d --build
-#   3) 打开 http://<服务器IP>:8080
+#   3) 打开 http://localhost:8080 （本机部署；远程服务器则换成其 IP 或域名）
 #
 # 注意：数据（SQLite 库 + 上传材料）只在 api 容器的 /app/data 里，
 # 该目录挂载到命名卷 course-ta-data；容器重建不会丢数据。

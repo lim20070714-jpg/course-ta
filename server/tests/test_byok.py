@@ -199,14 +199,18 @@ def client_fixture(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     return TestClient(app)
 
 
-def test_config_endpoint_describes_byok_without_leaking_key(client: TestClient) -> None:
+def test_config_endpoint_describes_byok_without_leaking_key(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # 用哨兵密钥，避免依赖运行测试机器的 .env 是否配置
+    monkeypatch.setattr(config.settings, "llm_api_key", "sk-server-secret-xyz")
     resp = client.get("/api/config")
     assert resp.status_code == 200
     body = resp.json()
     assert body["server_key_configured"] is True
     assert body["byok_headers"]["key"] == HEADER_KEY
     # 绝不回显服务端密钥本身
-    assert config.settings.llm_api_key not in json.dumps(body)
+    assert "sk-server-secret-xyz" not in json.dumps(body)
 
 
 def test_config_endpoint_reports_when_server_has_no_key(
@@ -216,10 +220,11 @@ def test_config_endpoint_reports_when_server_has_no_key(
     assert client.get("/api/config").json()["server_key_configured"] is False
 
 
-def test_describe_runtime_shape() -> None:
+def test_describe_runtime_shape(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(config.settings, "llm_api_key", "sk-server-secret-xyz")
     info = describe_runtime()
     assert set(info) >= {"server_key_configured", "server_model", "server_base_url", "byok_headers"}
-    assert config.settings.llm_api_key not in json.dumps(info)
+    assert "sk-server-secret-xyz" not in json.dumps(info)
 
 
 def test_real_app_applies_header_overrides(monkeypatch: pytest.MonkeyPatch) -> None:

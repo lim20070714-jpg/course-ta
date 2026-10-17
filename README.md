@@ -1,10 +1,30 @@
 # CourseTA · 开源课程学习平台
 
+[![CI](https://github.com/lim20070714-jpg/course-ta/actions/workflows/ci.yml/badge.svg)](https://github.com/lim20070714-jpg/course-ta/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/Python-3.12%2B-blue.svg)](server/pyproject.toml)
+[![FastAPI](https://img.shields.io/badge/FastAPI-005571.svg)](server/app/main.py)
+[![Node](https://img.shields.io/badge/Node-20%2B-green.svg)](web/package.json)
+[![React](https://img.shields.io/badge/React-19-61dafb.svg)](web/package.json)
+
 把任意一门课的课件（PDF / PPTX）变成**可检索、可练习、可视化的学习系统**：上传课件自动生成知识点总结与讲解（点击知识点直达原页）、按学科脉络自动构建的知识图谱（概念网络含前置关系，点击概念跳原页、连题目）、带引用的 AI 答疑、题库与解答、可自定义公式与符号的计算台、电路仿真实验台。答案标注 `[来源: 文件名 第X页]`，可逐条核对。
 
 > 面向所有学生的通用工具：不绑定某一门课、某一位老师、某所学校。上传你课程的材料，它就是你课程的学习平台。
 >
 > Turn any course's materials (PDF / PPTX) into a citation-backed learning platform: AI summaries with clickable knowledge points that jump to the source page, an auto-built concept map of the course, practice exam questions with step-level grading, a customizable symbolic-math workspace, and circuit simulation — every AI answer cites its source page.
+
+## 平台分区一览
+
+平台即分区，不是聊天套壳：每个分区是一件完整的学习工具，AI 能力沉在底层做支撑。
+
+| 分区（⌘/Ctrl+1..6 直达） | 做什么 |
+| --- | --- |
+| 课程资料 | 上传课件 / 教材 / 试卷（PDF / PPTX / DOCX / TXT / MD / 图片），自动解析入库并生成「整体总结 + 知识点清单」，逐页阅读、全文搜索，点击引用直达原页 |
+| 题库与解答 | 试卷自动拆成结构化题目（题干 + 参考答案 + 知识点标签），作答后步骤级批改、AI 详解结合课程材料、错题自动收录 |
+| 复习计划 | SM-2 间隔重复 + 考试冲刺模式：设置考试日期后自动压缩复习间隔、按考点热度加权排序、倒计时提醒 |
+| 计算台 | sympy 符号计算 20+ 操作（微积分 / 代数 / 变换 / 线性代数 / 复数），预置 35 条常用公式，自定义符号类型，KaTeX 渲染 + 数值近似 |
+| 知识图谱 | AI 通读全部材料，按学习顺序生成概念网络（前置 / 相关关系），模块可折叠、树形导航；点击概念直达出处原页与关联真题 |
+| 电路实验台 | 自研电路仿真引擎（改进节点法）：预置参数实验（RLC 阶跃 / RC 方波 / Sallen-Key…）+ 自由搭建画布，直流 / 瞬态 / 交流三视图分析 |
 
 ## 它解决什么问题
 
@@ -64,7 +84,8 @@ flowchart LR
 cd server
 uv sync
 cp .env.example .env   # Windows: copy .env.example .env
-# 编辑 .env，填入 LLM_API_KEY 与 EMBEDDING_*
+# 编辑 .env，填入 LLM_API_KEY 与 EMBEDDING_*（都填你自己的 Key，额度走你的账号；
+# 也可以都留空，让使用者在页面「设置」里自带密钥，见下文「给别人的用法」）
 uv run uvicorn app.main:app --reload
 ```
 
@@ -195,7 +216,7 @@ curl localhost:8000/api/chat \
 
 ### API 文档
 
-- 交互式文档（Swagger UI）：`http://<你的地址>:8000/docs`
+- 交互式文档（Swagger UI）：`http://localhost:8000/docs`（本机；远程部署换成你的地址）
 - 备用文档（ReDoc）：`/redoc`；OpenAPI JSON：`/openapi.json`
 - 中文接口说明与 SSE 接入示例：见 [docs/API.md](docs/API.md)
 - 自托管部署（本机 / Docker / 反向代理）见 [docs/DEPLOY.md](docs/DEPLOY.md)
