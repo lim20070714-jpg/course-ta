@@ -13,6 +13,8 @@
 >
 > Turn any course's materials (PDF / PPTX) into a citation-backed learning platform: AI summaries with clickable knowledge points that jump to the source page, an auto-built concept map of the course, practice exam questions with step-level grading, a customizable symbolic-math workspace, and circuit simulation — every AI answer cites its source page.
 
+**技术亮点与工程指标**（一页纸：难点、解法、602 个测试怎么分布、如何复现）见 [docs/HIGHLIGHTS.md](docs/HIGHLIGHTS.md)。
+
 ## 平台分区一览
 
 平台即分区，不是聊天套壳：每个分区是一件完整的学习工具，AI 能力沉在底层做支撑。
@@ -225,17 +227,19 @@ curl localhost:8000/api/chat \
 - 备用文档（ReDoc）：`/redoc`；OpenAPI JSON：`/openapi.json`
 - 中文接口说明与 SSE 接入示例：见 [docs/API.md](docs/API.md)
 - 自托管部署（本机 / Docker / 反向代理）见 [docs/DEPLOY.md](docs/DEPLOY.md)
+- 技术亮点与工程指标（一页纸）见 [docs/HIGHLIGHTS.md](docs/HIGHLIGHTS.md)
 
 ### 测试与评测
 
 ```bash
 cd server
-uv run pytest                                        # 单元测试
+uv run pytest                                        # 后端单元测试：253 个用例，全程离线（不需要 API key）
 uv run python ../evals/run_eval.py --dry-run         # 校验评测集格式
 uv run python ../evals/run_eval.py --course-id 1     # 真实评测（需已配置 .env 且材料已入库）
 
 cd ../web
-npm test                                             # 前端测试（仿真引擎 18 个 + 预置实验 14 个 + 计算台 13 个 + 图谱布局 6 个用例）
+npm run lint                                         # 前端静态检查（oxlint，49 个文件）
+npm test                                             # 前端测试：349 个用例（仿真引擎与搭建器与实验 111 + 图谱布局与折叠树 102 + 资料分组与搜索 62 + 复习冲刺 33 + BYOK 客户端 20 + 计算台 21）
 ```
 
 ## 目录结构
