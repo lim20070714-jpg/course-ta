@@ -297,3 +297,65 @@ class ReviewStatsRead(BaseModel):
     exam_date: date | None = None
     exam_days_left: int | None = None  # 距考试天数，可为负（已过）
     due_before_exam: int = 0  # 考试日结束前到期的卡片数（含逾期）
+
+
+class MockExamCreate(BaseModel):
+    title: str = ""
+    count: int = 10  # 组卷题数
+    duration_min: int = 60  # 限时（分钟）
+    knowledge: str = ""  # 只抽该知识点的题，留空不限
+    material_id: int | None = None  # 只抽某份材料的题，留空不限
+
+
+class MockExamRead(BaseModel):
+    id: int
+    course_id: int
+    title: str
+    status: str  # ready | running | grading | done | failed
+    count: int
+    duration_min: int
+    score: float
+    late: bool
+    started_at: datetime | None
+    deadline_at: datetime | None
+    submitted_at: datetime | None
+    seconds_left: int  # 剩余时间（服务端算，<=0 表示已超时）
+    answered: int  # 已作答的题数
+    graded: int = 0  # 批改进度（grading 期间轮询用）
+    error: str = ""
+
+
+class MockExamItem(BaseModel):
+    """模考中的单题。考试未结束时不下发参考答案，避免边做边抄。"""
+
+    problem_id: int
+    number: str
+    material: str
+    page: int
+    knowledge: list[str]
+    stem: str
+    answer_text: str = ""
+    verdict: str = "unanswered"
+    feedback: str = ""
+    answer: str = ""  # 参考答案，仅 done 状态给出
+
+
+class MockExamDetail(BaseModel):
+    exam: MockExamRead
+    items: list[MockExamItem]
+
+
+class MockExamListItem(BaseModel):
+    id: int
+    title: str
+    status: str
+    count: int
+    duration_min: int
+    score: float
+    late: bool
+    created_at: datetime
+    submitted_at: datetime | None
+
+
+class ExamAnswerUpdate(BaseModel):
+    answer_text: str

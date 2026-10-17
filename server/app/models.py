@@ -122,3 +122,36 @@ class ReviewCard(SQLModel, table=True):
     due_at: datetime = Field(default_factory=_now, index=True)
     last_review_at: datetime | None = Field(default=None)
     created_at: datetime = Field(default_factory=_now)
+
+
+class MockExam(SQLModel, table=True):
+    """限时模考：一次组卷 + 倒计时 + 交卷批改的完整记录。
+
+    计时以服务端为准（deadline_at 由开考时刻与时长算出），前端倒计时只做显示。
+    """
+
+    id: int | None = Field(default=None, primary_key=True)
+    course_id: int = Field(index=True, foreign_key="course.id")
+    title: str = "模拟卷"
+    duration_min: int = 60  # 限时（分钟）
+    problem_ids: str = "[]"  # 组卷顺序，JSON 数组
+    status: str = "ready"  # ready | running | grading | done | failed
+    error: str = ""
+    started_at: datetime | None = Field(default=None)
+    deadline_at: datetime | None = Field(default=None)
+    submitted_at: datetime | None = Field(default=None)
+    late: bool = False  # 交卷时是否已超过截止时间
+    score: float = 0.0  # 百分制
+    created_at: datetime = Field(default_factory=_now)
+
+
+class ExamAnswer(SQLModel, table=True):
+    """模考逐题作答与批改结果（交卷前只有 answer_text，交卷后补判定与反馈）。"""
+
+    id: int | None = Field(default=None, primary_key=True)
+    exam_id: int = Field(index=True, foreign_key="mockexam.id")
+    problem_id: int = Field(index=True, foreign_key="problem.id")
+    answer_text: str = ""
+    verdict: str = "unanswered"  # correct | partial | wrong | unknown | unanswered
+    feedback: str = ""
+    updated_at: datetime = Field(default_factory=_now)

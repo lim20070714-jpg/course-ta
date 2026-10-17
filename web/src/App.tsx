@@ -9,11 +9,12 @@ import type { LlmCredentials } from './llmKey'
 import { hasCredentials, loadCredentials } from './llmKey'
 import Bank from './sections/Bank'
 import Compute from './sections/Compute'
+import Exam from './sections/Exam'
 import Graph from './sections/Graph'
 import Library from './sections/Library'
 import Review from './sections/Review'
 
-type Tab = 'library' | 'bank' | 'review' | 'compute' | 'graph' | 'lab'
+type Tab = 'library' | 'bank' | 'review' | 'exam' | 'compute' | 'graph' | 'lab'
 
 interface LibraryJump {
   materialId: number
@@ -31,6 +32,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'library', label: '课程资料' },
   { id: 'bank', label: '题库与解答' },
   { id: 'review', label: '复习计划' },
+  { id: 'exam', label: '限时模考' },
   { id: 'compute', label: '计算台' },
   { id: 'graph', label: '知识图谱' },
   { id: 'lab', label: '电路实验台' },
@@ -295,6 +297,16 @@ export default function App() {
       )}
       {tab === 'review' && (
         <Review
+          key={activeCourseId ?? 'none'}
+          courseId={activeCourseId}
+          onOpenProblem={(problemId) => {
+            setBankJump({ problemId, seq: ++jumpSeq.current })
+            setTab('bank')
+          }}
+        />
+      )}
+      {tab === 'exam' && (
+        <Exam
           key={activeCourseId ?? 'none'}
           courseId={activeCourseId}
           onOpenProblem={(problemId) => {

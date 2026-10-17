@@ -1464,6 +1464,11 @@ button.citation:hover:not(:disabled) {
   color: var(--warn-text);
 }
 
+.verdict-badge.unanswered {
+  background: var(--surface-2);
+  color: var(--muted);
+}
+
 .verdict-badge.wrong {
   background: var(--danger-bg);
   color: var(--danger-text);
@@ -5259,4 +5264,398 @@ html[data-theme='dark'] .material-zone.collapsed {
   background: var(--surface-2);
   color: var(--text);
   border: 1px solid var(--border-strong);
+}
+
+/* ==========================================================================
+   v0.14 限时模考：状态顶栏（倒计时/批改/成绩）+ 试卷 + 组卷首页
+   ========================================================================== */
+
+.exam-page {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+/* ---------- 状态顶栏：计时器 / 批改进度 / 成绩带 ---------- */
+
+.exam-bar {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  box-shadow: var(--elev-1);
+  position: sticky;
+  top: 0;
+  z-index: 3;
+}
+
+.exam-clock,
+.exam-score-band {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 28px;
+  flex-wrap: wrap;
+}
+
+.exam-clock-label {
+  font-size: 12px;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+}
+
+.exam-clock-num {
+  font-size: 26px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent-strong);
+}
+
+.exam-clock.danger .exam-clock-num {
+  color: var(--danger-text);
+  animation: examPulse 1s var(--ease-in-out) infinite;
+}
+
+.exam-clock.grading .exam-clock-num {
+  color: var(--warn-text);
+}
+
+.exam-clock-progress,
+.exam-clock-hint {
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+
+.exam-clock button {
+  margin-left: auto;
+  padding: 8px 16px;
+  font-size: 14px;
+}
+
+@keyframes examPulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+/* ---------- 成绩带 ---------- */
+
+.exam-score {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.exam-score-num {
+  font-size: 34px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent-strong);
+}
+
+.exam-score-unit {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.exam-score-meta {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.exam-score-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.exam-score-tags {
+  font-size: 12.5px;
+  color: var(--text-3);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.exam-score-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* ---------- 判定胶囊：复用题库的 .verdict-badge 配色，这里只加描边与超时标记 ---------- */
+
+.exam-chip {
+  font-size: 12px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-2);
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+.exam-chip.late {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  border-color: var(--accent-border);
+}
+
+/* ---------- 试卷 ---------- */
+
+.exam-paper {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 20px 28px 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  background: var(--bg);
+}
+
+.exam-item {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px 18px;
+  box-shadow: var(--elev-1);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  animation: dshFadeUp var(--dur-3) var(--ease-out) both;
+}
+
+.exam-item-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.exam-no {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  border: 1px solid var(--accent-border);
+  font-size: 12.5px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.exam-src {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.exam-stem {
+  font-size: 14px;
+}
+
+.exam-input {
+  min-height: 110px;
+  resize: vertical;
+  font-size: 14px;
+  line-height: 1.7;
+  background: var(--surface-3);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+
+.exam-input:focus {
+  background: var(--surface);
+  border-color: var(--accent-border);
+  box-shadow: var(--focus-ring);
+}
+
+/* ---------- 批改结果三栏：我的作答 / 参考答案 / 助教点评 ---------- */
+
+.exam-answer-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.exam-mine,
+.exam-ref,
+.exam-feedback {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: var(--surface-3);
+  min-width: 0;
+}
+
+.exam-ref {
+  background: var(--accent-softer);
+  border-color: var(--accent-border);
+}
+
+.exam-feedback {
+  grid-column: 1 / -1;
+  background: var(--warn-bg);
+  border-color: var(--warn-border);
+}
+
+.exam-mine h4,
+.exam-ref h4,
+.exam-feedback h4 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--text-3);
+}
+
+/* ---------- 组卷首页 ---------- */
+
+.exam-home {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 20px 28px 32px;
+  max-width: 880px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.exam-setup,
+.exam-history {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px 22px;
+  box-shadow: var(--elev-1);
+}
+
+.exam-setup h2,
+.exam-history h3 {
+  margin: 0 0 8px;
+}
+
+.exam-sub {
+  margin: 0 0 16px;
+  font-size: 13px;
+  line-height: 1.75;
+  color: var(--text-3);
+}
+
+.exam-controls {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.exam-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.exam-field.grow {
+  flex: 1;
+  min-width: 200px;
+}
+
+.exam-field input,
+.exam-field select {
+  font-size: 14px;
+  padding: 8px 10px;
+}
+
+.exam-hint {
+  margin: 12px 0 0;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.exam-history {
+  margin-top: 16px;
+}
+
+.exam-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.exam-row:last-child {
+  border-bottom: none;
+}
+
+.exam-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  text-align: left;
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 8px;
+}
+
+.exam-row-main:hover {
+  background: var(--surface-2);
+}
+
+.exam-row-title {
+  font-size: 13.5px;
+  color: var(--text);
+}
+
+.exam-row-meta {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* 窄屏：三栏批改结果与成绩操作区改为纵向堆叠 */
+@media (max-width: 860px) {
+  .exam-answer-pair {
+    grid-template-columns: 1fr;
+  }
+  .exam-score-actions,
+  .exam-clock button {
+    margin-left: 0;
+    width: 100%;
+  }
+  .exam-bar,
+  .exam-paper,
+  .exam-home {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .exam-clock.danger .exam-clock-num {
+    animation: none;
+  }
+  .exam-item {
+    animation: none;
+  }
 }

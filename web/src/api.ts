@@ -532,6 +532,88 @@ export const setExamDate = (courseId: number, examDate: string | null) =>
 export const getProblemReview = (problemId: number) =>
   apiFetch(`/api/problems/${problemId}/review`).then((r) => json<ReviewCard | null>(r))
 
+/* ---------- 限时模考 ---------- */
+
+export interface MockExam {
+  id: number
+  course_id: number
+  title: string
+  status: string // ready | running | grading | done | failed
+  count: number
+  duration_min: number
+  score: number
+  late: boolean
+  started_at: string | null
+  deadline_at: string | null
+  submitted_at: string | null
+  seconds_left: number
+  answered: number
+  graded: number
+  error: string
+}
+
+export interface MockExamItem {
+  problem_id: number
+  number: string
+  material: string
+  page: number
+  knowledge: string[]
+  stem: string
+  answer_text: string
+  verdict: string
+  feedback: string
+  answer: string // 参考答案：仅交卷批改完成后下发
+}
+
+export interface MockExamDetail {
+  exam: MockExam
+  items: MockExamItem[]
+}
+
+export interface MockExamSummary {
+  id: number
+  title: string
+  status: string
+  count: number
+  duration_min: number
+  score: number
+  late: boolean
+  created_at: string
+  submitted_at: string | null
+}
+
+export const createMockExam = (
+  courseId: number,
+  payload: { title?: string; count: number; duration_min: number; knowledge?: string; material_id?: number | null },
+) =>
+  apiFetch(`/api/courses/${courseId}/mock-exams`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ material_id: null, knowledge: '', title: '', ...payload }),
+  }).then((r) => json<MockExam>(r))
+
+export const listMockExams = (courseId: number) =>
+  apiFetch(`/api/courses/${courseId}/mock-exams`).then((r) => json<MockExamSummary[]>(r))
+
+export const getMockExam = (examId: number) =>
+  apiFetch(`/api/mock-exams/${examId}`).then((r) => json<MockExamDetail>(r))
+
+export const startMockExam = (examId: number) =>
+  apiFetch(`/api/mock-exams/${examId}/start`, { method: 'POST' }).then((r) => json<MockExam>(r))
+
+export const saveMockAnswer = (examId: number, problemId: number, answerText: string) =>
+  apiFetch(`/api/mock-exams/${examId}/answers/${problemId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ answer_text: answerText }),
+  }).then((r) => json<MockExamDetail>(r))
+
+export const submitMockExam = (examId: number) =>
+  apiFetch(`/api/mock-exams/${examId}/submit`, { method: 'POST' }).then((r) => json<MockExam>(r))
+
+export const deleteMockExam = (examId: number) =>
+  apiFetch(`/api/mock-exams/${examId}`, { method: 'DELETE' }).then((r) => json<{ status: string }>(r))
+
 export const enrollReview = (problemId: number) =>
   apiFetch(`/api/problems/${problemId}/review`, { method: 'PUT' }).then((r) =>
     json<ReviewCard>(r),

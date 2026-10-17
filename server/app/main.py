@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app import config, db
-from app.api import chat, compute, courses, graph, library, problems, review
+from app.api import chat, compute, courses, exams, graph, library, problems, review
 
 
 @asynccontextmanager
@@ -16,7 +16,7 @@ async def lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title="CourseTA API", version="0.12.0", lifespan=lifespan)
+app = FastAPI(title="CourseTA API", version="0.14.0", lifespan=lifespan)
 
 
 class BYOKMiddleware:
@@ -60,6 +60,7 @@ app.include_router(problems.router, prefix="/api")
 app.include_router(compute.router, prefix="/api")
 app.include_router(graph.router, prefix="/api")
 app.include_router(review.router, prefix="/api")
+app.include_router(exams.router, prefix="/api")
 
 
 @app.get("/api/health")
