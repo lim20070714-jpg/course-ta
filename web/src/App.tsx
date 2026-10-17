@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Course } from './api'
-import { createCourse, listCourses } from './api'
+import { createCourse, listCourses, updateCourse } from './api'
 import CommandPalette from './components/CommandPalette'
+import { checkCourseName } from './components/rename'
 import type { Command } from './components/quickSearch'
 import SettingsPanel from './components/SettingsPanel'
 import LabPage from './components/LabPage'
@@ -13,8 +14,9 @@ import Exam from './sections/Exam'
 import Graph from './sections/Graph'
 import Library from './sections/Library'
 import Review from './sections/Review'
+import Trace from './sections/Trace'
 
-type Tab = 'library' | 'bank' | 'review' | 'exam' | 'compute' | 'graph' | 'lab'
+type Tab = 'library' | 'bank' | 'review' | 'exam' | 'compute' | 'graph' | 'lab' | 'trace'
 
 interface LibraryJump {
   materialId: number
@@ -31,6 +33,7 @@ interface BankJump {
 const TABS: { id: Tab; label: string }[] = [
   { id: 'library', label: '课程资料' },
   { id: 'bank', label: '题库与解答' },
+  { id: 'trace', label: '做题足迹' },
   { id: 'review', label: '复习计划' },
   { id: 'exam', label: '限时模考' },
   { id: 'compute', label: '计算台' },
@@ -47,6 +50,8 @@ export default function App() {
   const [activeCourseId, setActiveCourseId] = useState<number | null>(null)
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState('')
+  const [renamingCourse, setRenamingCourse] = useState(false)
+  const [courseDraft, setCourseDraft] = useState('')
   const [notice, setNotice] = useState('')
   const [libraryJump, setLibraryJump] = useState<LibraryJump | null>(null)
   const [bankJump, setBankJump] = useState<BankJump | null>(null)
@@ -78,6 +83,29 @@ export default function App() {
       setNewName('')
       setCreating(false)
       setNotice('')
+    } catch (e) {
+      setNotice((e as Error).message)
+    }
+  }
+
+  // 课程名出现在顶栏、模考试卷与导出物里；改名不会级联重写已经生成的这些内容。
+  async function handleRenameCourse() {
+    const active = courses.find((c) => c.id === activeCourseId)
+    if (!active) return
+    const check = checkCourseName(courseDraft)
+    if (!check.ok) {
+      setNotice(check.message)
+      return
+    }
+    if (check.value === active.name) {
+      setRenamingCourse(false)
+      return
+    }
+    try {
+      const updated = await updateCourse(active.id, { name: check.value })
+      setCourses((cs) => cs.map((c) => (c.id === updated.id ? updated : c)))
+      setRenamingCourse(false)
+      setNotice(`课程已改名为「${updated.name}」`)
     } catch (e) {
       setNotice((e as Error).message)
     }
@@ -259,21 +287,60 @@ export default function App() {
             </>
           ) : (
             <>
-              <select
-                className="course-select"
-                value={activeCourseId ?? ''}
-                onChange={(e) => setActiveCourseId(Number(e.target.value))}
-              >
-                {courses.length === 0 && <option value="">（暂无课程）</option>}
-                {courses.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-              <button className="mini ghost" onClick={() => setCreating(true)}>
-                ＋ 新建课程
-              </button>
+              {renamingCourse ? (
+                <>
+                  <input
+                    className="course-new"
+                    aria-label="课程新名称"
+                    value={courseDraft}
+                    autoFocus
+                    onChange={(e) => setCourseDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') void handleRenameCourse()
+                      if (e.key === 'Escape') setRenamingCourse(false)
+                    }}
+                  />
+                  <button
+                    className="mini"
+                    disabled={!checkCourseName(courseDraft).ok}
+                    onClick={() => void handleRenameCourse()}
+                  >
+                    保存
+                  </button>
+                  <button className="mini ghost" onClick={() => setRenamingCourse(false)}>
+                    取消
+                  </button>
+                </>
+              ) : (
+                <>
+                  <select
+                    className="course-select"
+                    value={activeCourseId ?? ''}
+                    onChange={(e) => setActiveCourseId(Number(e.target.value))}
+                  >
+                    {courses.length === 0 && <option value="">（暂无课程）</option>}
+                    {courses.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    className="mini ghost"
+                    disabled={activeCourseId === null}
+                    title="改这门课的名字"
+                    onClick={() => {
+                      setCourseDraft(courses.find((c) => c.id === activeCourseId)?.name ?? '')
+                      setRenamingCourse(true)
+                    }}
+                  >
+                    改名
+                  </button>
+                  <button className="mini ghost" onClick={() => setCreating(true)}>
+                    ＋ 新建课程
+                  </button>
+                </>
+              )}
             </>
           )}
         </div>
@@ -294,6 +361,17 @@ export default function App() {
       )}
       {tab === 'bank' && (
         <Bank key={activeCourseId ?? 'none'} courseId={activeCourseId} jump={bankJump} />
+      )}
+      {tab === 'trace' && (
+        <Trace
+          key={activeCourseId ?? 'none'}
+          courseId={activeCourseId}
+          onOpenProblem={(problemId) => {
+            setBankJump({ problemId, seq: ++jumpSeq.current })
+            setTab('bank')
+          }}
+          onOpenBank={() => setTab('bank')}
+        />
       )}
       {tab === 'review' && (
         <Review

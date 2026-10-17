@@ -17,15 +17,67 @@ from app.models import Chunk, Concept, Course, Material, Problem, Summary
 from app.schemas import (
     CourseCreate,
     CourseRead,
+    CourseUpdate,
     MaterialDeleteResult,
-    MaterialKindUpdate,
     MaterialRead,
+    MaterialUpdate,
 )
 
 router = APIRouter(tags=["courses"])
 
 SUPPORTED_SUFFIXES = {".pdf", ".pptx", ".docx", ".txt", ".md"} | media.IMAGE_SUFFIXES
 _FORMAT_HINT = "PDF / PPTX / DOCX / TXT / MD / 图片（PNG / JPG / WEBP / GIF / BMP / TIFF）"
+MAX_COURSE_NAME = 60
+MAX_MATERIAL_NAME = 120
+# Windows 不允许出现在文件名里的字符；'/' 与 '\\' 会被 Path().name 当成分隔符吃掉。
+# 注意别写成 '<>:"|?*\x00-\x1f'：普通字符串里 \x00-\x1f 是三个字符（含连字符 '-'），会把正常文件名误判为非法。
+CONTROL_CHARS = {chr(code) for code in range(0x20)}
+ILLEGAL_NAME_CHARS = set('<>:"|?*') | CONTROL_CHARS
+
+
+def normalize_material_name(raw: str) -> str:
+    """把用户给的资料名收成可安全落盘的文件名（剥掉目录成分、校验后缀与长度）。"""
+    name = Path(raw.strip()).name
+    if not name or name in {".", ".."}:
+        raise HTTPException(400, "资料名不能为空")
+    if len(name) > MAX_MATERIAL_NAME:
+        raise HTTPException(400, f"资料名最长 {MAX_MATERIAL_NAME} 个字符")
+    if any(ch in name for ch in ILLEGAL_NAME_CHARS):
+        raise HTTPException(400, '资料名不能包含 < > : " | ? * 等字符')
+    if Path(name).suffix.lower() not in SUPPORTED_SUFFIXES:
+        raise HTTPException(400, f"资料名要保留原来的类型后缀（{_FORMAT_HINT}）")
+    return name
+
+
+def normalize_course_name(raw: str) -> str:
+    name = raw.strip()
+    if not name:
+        raise HTTPException(400, "课程名不能为空")
+    if len(name) > MAX_COURSE_NAME:
+        raise HTTPException(400, f"课程名最长 {MAX_COURSE_NAME} 个字")
+    return name
+
+
+def is_busy(material: Material) -> bool:
+    """后台是否还在动这份资料的原件或派生数据（入库 / 总结 / 拆题）。"""
+    material_id = material.id or 0
+    return (
+        material.status in ("pending", "ingesting")
+        or summary_core.job_status(material_id)["status"] == "generating"
+        or problems_core.job_status(material_id)["status"] == "running"
+    )
+
+
+def rename_on_disk(material: Material, new_name: str) -> None:
+    """把磁盘原件一起改名；原件已被外部删掉时只改显示名，不把改名失败当成接口失败。"""
+    old = Path(material.stored_path)
+    if not old.exists():
+        return
+    target = old.with_name(new_name)
+    if target.exists():  # 目录里躺着不属于任何 Material 的同名文件
+        raise HTTPException(409, f"资料目录里已存在同名文件：{new_name}")
+    old.replace(target)
+    material.stored_path = str(target)
 
 
 def material_read(material: Material, text_pages: int = 0) -> MaterialRead:
@@ -49,9 +101,7 @@ def material_read(material: Material, text_pages: int = 0) -> MaterialRead:
 
 @router.post("/courses", response_model=CourseRead)
 def create_course(payload: CourseCreate) -> Course:
-    name = payload.name.strip()
-    if not name:
-        raise HTTPException(400, "课程名不能为空")
+    name = normalize_course_name(payload.name)
     with Session(db.engine) as session:
         course = Course(name=name, description=payload.description)
         session.add(course)
@@ -64,6 +114,25 @@ def create_course(payload: CourseCreate) -> Course:
 def list_courses() -> list[Course]:
     with Session(db.engine) as session:
         return list(session.exec(select(Course).order_by(Course.id)).all())
+
+
+@router.patch("/courses/{course_id}", response_model=CourseRead)
+def update_course(course_id: int, payload: CourseUpdate) -> Course:
+    """改课程名或简介。课程名会出现在顶栏、模考试卷与导出物里，改名不做级联重写。"""
+    if payload.name is None and payload.description is None:
+        raise HTTPException(400, "没有要修改的字段（name 或 description）")
+    with Session(db.engine) as session:
+        course = session.get(Course, course_id)
+        if course is None:
+            raise HTTPException(404, "课程不存在")
+        if payload.name is not None:
+            course.name = normalize_course_name(payload.name)
+        if payload.description is not None:
+            course.description = payload.description.strip()
+        session.add(course)
+        session.commit()
+        session.refresh(course)
+        return course
 
 
 @router.get("/courses/{course_id}/materials", response_model=list[MaterialRead])
@@ -121,19 +190,54 @@ async def upload_material(
 
 
 @router.patch("/materials/{material_id}", response_model=MaterialRead)
-def update_material_kind(material_id: int, payload: MaterialKindUpdate) -> Material:
-    kind = payload.kind.strip()
-    if kind not in VALID_KINDS:
-        raise HTTPException(400, f"未知材料类型：{kind}")
+def update_material(material_id: int, payload: MaterialUpdate) -> MaterialRead:
+    """改资料类型或资料名。
+
+    资料名既是界面显示名，也是磁盘上原件的文件名，所以改名会把
+    `data/materials/{course_id}/{filename}` 一起重命名并让 `stored_path` 跟着走——
+    原件还被后台任务读着时先返回 409，避免改名与入库/拆题抢同一个文件。
+    类型是人工选定的标签，改名不会按后缀重新判定它。
+    """
+    if payload.kind is None and payload.filename is None:
+        raise HTTPException(400, "没有要修改的字段（kind 或 filename）")
+    kind: str | None = None
+    if payload.kind is not None:
+        kind = payload.kind.strip()
+        if kind not in VALID_KINDS:
+            raise HTTPException(400, f"未知材料类型：{kind}")
+    new_name: str | None = None
+    if payload.filename is not None:
+        new_name = normalize_material_name(payload.filename)
+
     with Session(db.engine) as session:
         material = session.get(Material, material_id)
         if material is None:
             raise HTTPException(404, "材料不存在")
-        material.kind = kind
+        if new_name is not None and new_name != material.filename:
+            if is_busy(material):
+                raise HTTPException(
+                    409, "这份资料还在后台处理（入库 / 总结 / 拆题），等它完成后再改名。"
+                )
+            duplicated = session.exec(
+                select(Material)
+                .where(Material.course_id == material.course_id)
+                .where(Material.filename == new_name)
+                .where(Material.id != material_id)
+            ).first()
+            if duplicated is not None:
+                raise HTTPException(409, f"这门课里已经有同名资料：{new_name}")
+            rename_on_disk(material, new_name)
+            material.filename = new_name
+        if kind is not None:
+            material.kind = kind
         session.add(material)
         session.commit()
         session.refresh(material)
-        return material
+        # 页数与列表口径一致：来自 Chunk 的最大页码，而不是 Material 表里的 0
+        max_page = session.exec(
+            select(func.max(Chunk.page)).where(Chunk.material_id == material_id)
+        ).one()
+        return material_read(material, max_page or 0)
 
 
 @router.delete("/materials/{material_id}", response_model=MaterialDeleteResult)
@@ -150,10 +254,7 @@ def delete_material(material_id: int) -> MaterialDeleteResult:
         material = session.get(Material, material_id)
         if material is None:
             raise HTTPException(404, "材料不存在")
-        busy = material.status in ("pending", "ingesting")
-        busy = busy or summary_core.job_status(material_id)["status"] == "generating"
-        busy = busy or problems_core.job_status(material_id)["status"] == "running"
-        if busy:
+        if is_busy(material):
             raise HTTPException(409, "这份资料还在后台处理（入库 / 总结 / 拆题），等它完成后再删除。")
 
         chunks_removed = session.exec(

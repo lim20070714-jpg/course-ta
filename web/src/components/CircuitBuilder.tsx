@@ -11,6 +11,14 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import type { LabDrawingSummary } from '../api'
+import {
+  createLabDrawing,
+  deleteLabDrawing,
+  getLabDrawing,
+  listLabDrawings,
+  overwriteLabDrawing,
+} from '../api'
 import {
   magnitude,
   solveDC,
@@ -21,6 +29,14 @@ import {
   type Circuit,
 } from '../circuit'
 import { formatSi } from '../labs/labs'
+import {
+  checkName,
+  drawingCounts,
+  FREE_LAB_ID,
+  isBuildShape,
+  normalizeName,
+  updatedLabel,
+} from '../labs/drawings'
 import {
   buildCircuit,
   canPlace,
@@ -186,6 +202,12 @@ export default function CircuitBuilder() {
   const [freqText, setFreqText] = useState('')
   const [offsetText, setOffsetText] = useState('')
   const [hint, setHint] = useState('')
+  const [drawings, setDrawings] = useState<LabDrawingSummary[]>([])
+  const [drawingName, setDrawingName] = useState('')
+  const [currentDrawing, setCurrentDrawing] = useState<LabDrawingSummary | null>(null)
+  const [drawingsOpen, setDrawingsOpen] = useState(false)
+  const [drawingBusy, setDrawingBusy] = useState(false)
+  const [drawNotice, setDrawNotice] = useState('')
   const svgRef = useRef<SVGSVGElement | null>(null)
   const pressRef = useRef<Pt | null>(null)
   const dragRef = useRef<DragState | null>(null)
@@ -218,6 +240,91 @@ export default function CircuitBuilder() {
       /* 隐私模式等场景下忽略 */
     }
   }, [build])
+
+  /* ---------- 图纸：存到服务端，换浏览器也能继续画（本地暂存只是兜底） ---------- */
+
+  const loadDrawings = () => {
+    listLabDrawings(FREE_LAB_ID)
+      .then(setDrawings)
+      .catch((e: Error) => setDrawNotice(`图纸列表读取失败：${e.message}`))
+  }
+
+  useEffect(() => {
+    loadDrawings()
+  }, [])
+
+  /** 改名/另存时不能撞别人；当前这张图纸自己的名字不算冲突。 */
+  const takenNames = useMemo(
+    () => drawings.filter((d) => d.id !== currentDrawing?.id).map((d) => d.name),
+    [drawings, currentDrawing],
+  )
+
+  const saveDrawing = async (asNew: boolean) => {
+    const name = normalizeName(drawingName)
+    const bad = checkName(name, asNew ? drawings.map((d) => d.name) : takenNames)
+    if (bad) {
+      setDrawNotice(bad)
+      return
+    }
+    setDrawingBusy(true)
+    setDrawNotice('')
+    try {
+      const payload = { name, lab_id: FREE_LAB_ID, build }
+      const saved =
+        asNew || currentDrawing === null
+          ? await createLabDrawing(payload)
+          : await overwriteLabDrawing(currentDrawing.id, payload)
+      setCurrentDrawing(saved)
+      setDrawingName(saved.name)
+      setDrawNotice(
+        `已${asNew ? '另存' : '保存'}图纸《${saved.name}》：${drawingCounts(saved)}。换浏览器也能载入。`,
+      )
+      loadDrawings()
+    } catch (e) {
+      setDrawNotice((e as Error).message)
+    } finally {
+      setDrawingBusy(false)
+    }
+  }
+
+  const openDrawing = async (id: number) => {
+    setDrawingBusy(true)
+    setDrawNotice('')
+    try {
+      const d = await getLabDrawing(id)
+      if (!isBuildShape(d.build)) {
+        setDrawNotice(`图纸《${d.name}》的内容读不出来，可能来自不兼容的旧版本。`)
+        return
+      }
+      setBuild({ comps: d.build.comps, wires: d.build.wires })
+      setSelComp(null)
+      setSelWire(null)
+      putDraft(null)
+      setArmed(null)
+      setHint('')
+      setCurrentDrawing(d)
+      setDrawingName(d.name)
+      setDrawNotice(`已载入图纸《${d.name}》：${drawingCounts(d)}。`)
+      fitView()
+    } catch (e) {
+      setDrawNotice((e as Error).message)
+    } finally {
+      setDrawingBusy(false)
+    }
+  }
+
+  const removeDrawing = async (id: number) => {
+    const target = drawings.find((d) => d.id === id)
+    if (!window.confirm(`删除图纸《${target?.name ?? id}》？画布上正在搭的内容不会丢。`)) return
+    try {
+      await deleteLabDrawing(id)
+      setDrawings((rows) => rows.filter((d) => d.id !== id))
+      if (currentDrawing?.id === id) setCurrentDrawing(null)
+      setDrawNotice('图纸已删除。')
+    } catch (e) {
+      setDrawNotice((e as Error).message)
+    }
+  }
 
   /* Ctrl + 滚轮缩放：普通滚轮保持页面滚动，因此需要非 passive 的原生监听 */
   useEffect(() => {
@@ -889,6 +996,53 @@ export default function CircuitBuilder() {
               整页
             </button>
           </span>
+          <span className="builder-draw">
+            <input
+              data-drawing-name
+              className="builder-name"
+              value={drawingName}
+              maxLength={60}
+              spellCheck={false}
+              placeholder="图纸名，如：反相放大器"
+              aria-label="图纸名称"
+              onChange={(e) => setDrawingName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') void saveDrawing(false)
+              }}
+            />
+            <button
+              type="button"
+              className="mini"
+              disabled={drawingBusy}
+              title={
+                currentDrawing
+                  ? `覆盖保存到《${currentDrawing.name}》`
+                  : '命名后把画布内容存到服务端，换浏览器也能载入'
+              }
+              onClick={() => void saveDrawing(false)}
+            >
+              {currentDrawing ? '保存' : '保存图纸'}
+            </button>
+            {currentDrawing && (
+              <button
+                type="button"
+                className="mini ghost"
+                disabled={drawingBusy}
+                title="用当前名字新建一张，不动原来那张"
+                onClick={() => void saveDrawing(true)}
+              >
+                另存
+              </button>
+            )}
+            <button
+              type="button"
+              className={drawingsOpen ? 'mini ghost active' : 'mini ghost'}
+              aria-expanded={drawingsOpen}
+              onClick={() => setDrawingsOpen((open) => !open)}
+            >
+              我的图纸（{drawings.length}）
+            </button>
+          </span>
           <span className="builder-status" role="status">
             {armed
               ? `已选「${KIND_LABEL[armed]}」：点击画布放置，Esc 取消`
@@ -897,6 +1051,62 @@ export default function CircuitBuilder() {
                 : '拖元件移动；点端子连线（磁吸对齐）；Ctrl+滚轮缩放，拖空白平移'}
           </span>
         </div>
+
+        {drawNotice && (
+          <p className="drawings-notice" role="status">
+            {drawNotice}
+          </p>
+        )}
+
+        {drawingsOpen && (
+          <div className="builder-drawings">
+            <div className="drawings-head">
+              <span className="drawings-title">我的图纸（{drawings.length}）</span>
+              <button type="button" className="mini ghost" onClick={loadDrawings} disabled={drawingBusy}>
+                刷新
+              </button>
+            </div>
+            {drawings.length === 0 ? (
+              <p className="drawings-empty">
+                还没有保存的图纸。在上方起个名字点「保存图纸」，画布内容就存进服务端，
+                换浏览器或重装后都能载回来继续画。
+              </p>
+            ) : (
+              <ul className="drawings-list">
+                {drawings.map((d) => (
+                  <li
+                    key={d.id}
+                    className={currentDrawing?.id === d.id ? 'drawing-row active' : 'drawing-row'}
+                  >
+                    <button
+                      type="button"
+                      className="drawing-main"
+                      disabled={drawingBusy}
+                      title="载入到画布（画布上未保存的改动会被替换）"
+                      onClick={() => void openDrawing(d.id)}
+                    >
+                      <span className="drawing-name">
+                        {d.name}
+                        {currentDrawing?.id === d.id && <span className="drawing-cur">当前</span>}
+                      </span>
+                      <span className="drawing-meta">
+                        {drawingCounts(d)} · 改于 {updatedLabel(d.updated_at)}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      className="link danger"
+                      aria-label={`删除图纸 ${d.name}`}
+                      onClick={() => void removeDrawing(d.id)}
+                    >
+                      删除
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
 
         <div className="builder-inspector">
           {selected ? (

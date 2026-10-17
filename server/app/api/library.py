@@ -136,7 +136,7 @@ def search_course(
         hits = [
             SearchHit(
                 material_id=c.material_id,
-                material=names.get(c.material_id, "未知材料"),
+                material=names.get(c.material_id, "来源已删除"),
                 page=c.page,
                 snippet=snippet_around(c.text, query),
             )

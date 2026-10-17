@@ -5,6 +5,7 @@
 """
 
 from datetime import date, datetime
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -12,6 +13,11 @@ from pydantic import BaseModel
 class CourseCreate(BaseModel):
     name: str
     description: str = ""
+
+
+class CourseUpdate(BaseModel):
+    name: str | None = None  # None 表示这次不改课程名
+    description: str | None = None  # 空串表示清掉简介
 
 
 class CourseRead(BaseModel):
@@ -42,8 +48,9 @@ class MaterialRead(BaseModel):
     image_pages: list[int] = []  # 可以直接看原页图的页码
 
 
-class MaterialKindUpdate(BaseModel):
-    kind: str
+class MaterialUpdate(BaseModel):
+    kind: str | None = None  # 类型标签由人工选定，改名不会重新判定它
+    filename: str | None = None  # 显示名，同时也是磁盘上原件的文件名
 
 
 class MaterialDeleteResult(BaseModel):
@@ -138,6 +145,38 @@ class ProblemDetailRead(BaseModel):
     attempts: list[AttemptRead]
 
 
+class AttemptHistoryItem(BaseModel):
+    """一条作答足迹：判定 + 时间 + 题目定位，够前端按天分组并跳回原题。"""
+
+    attempt_id: int
+    problem_id: int
+    material: str
+    page: int
+    number: str
+    excerpt: str
+    knowledge: list[str]
+    verdict: str
+    answer_text: str
+    feedback: str
+    created_at: datetime
+
+
+class AttemptHistoryCounts(BaseModel):
+    total: int
+    correct: int
+    partial: int
+    wrong: int
+    unknown: int
+    problems_touched: int  # 至少做过一次的题数
+    problems_ever_wrong: int  # 曾经做错/半对的题数（含后来做对的）
+
+
+class AttemptHistoryRead(BaseModel):
+    counts: AttemptHistoryCounts
+    filtered: int  # 当前筛选条件下的记录数（counts 始终统计全量）
+    items: list[AttemptHistoryItem]
+
+
 class TagCount(BaseModel):
     tag: str
     count: int
@@ -185,6 +224,53 @@ class ComputeResult(BaseModel):
     latex: str
     plain: str
     approx: str = ""
+
+
+class ComputeRunRead(BaseModel):
+    id: int
+    expr: str
+    op: str
+    args: dict[str, Any]  # 回填用的其余入参
+    result_latex: str
+    result_plain: str
+    approx: str
+    error: str  # 非空表示这次运算失败，结果是错误信息
+    created_at: datetime
+
+
+class ComputeHistoryRead(BaseModel):
+    total: int
+    kept: int  # 服务端最多留这么多条
+    items: list[ComputeRunRead]
+
+
+class ComputeHistoryCleared(BaseModel):
+    status: str = "cleared"
+    removed: int
+
+
+class LabDrawingIn(BaseModel):
+    name: str
+    lab_id: str = "__free"
+    build: dict[str, Any]  # {"comps": [...], "wires": [...]}，画布结构由前端负责
+
+
+class LabDrawingRead(BaseModel):
+    id: int
+    name: str
+    lab_id: str
+    comp_count: int
+    wire_count: int
+    updated_at: datetime
+
+
+class LabDrawingDetail(LabDrawingRead):
+    build: dict[str, Any]
+
+
+class LabDrawingDeleted(BaseModel):
+    status: str = "deleted"
+    name: str
 
 
 class FormulaCreate(BaseModel):

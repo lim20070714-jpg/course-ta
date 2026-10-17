@@ -171,6 +171,84 @@ export const evaluateCompute = (payload: ComputePayload) =>
     body: JSON.stringify(payload),
   }).then((r) => json<ComputeResult>(r))
 
+/** 计算台的一行历史：error 非空表示这次没算出来，留下的就是报错信息。 */
+export interface ComputeRun {
+  id: number
+  expr: string
+  op: string
+  args: {
+    var?: string
+    point?: string
+    lower?: string
+    upper?: string
+    order?: number
+    symbols?: { name: string; kind: string }[]
+  }
+  result_latex: string
+  result_plain: string
+  approx: string
+  error: string
+  created_at: string
+}
+
+export interface ComputeHistory {
+  total: number
+  kept: number
+  items: ComputeRun[]
+}
+
+export const getComputeHistory = (limit = 50) =>
+  apiFetch(`/api/compute/history?limit=${limit}`).then((r) => json<ComputeHistory>(r))
+
+export const clearComputeHistory = () =>
+  apiFetch('/api/compute/history', { method: 'DELETE' }).then((r) =>
+    json<{ status: string; removed: number }>(r),
+  )
+
+/** 实验台图纸：画布内容存在服务端，换浏览器也能继续画。 */
+export interface LabDrawingSummary {
+  id: number
+  name: string
+  lab_id: string
+  comp_count: number
+  wire_count: number
+  updated_at: string
+}
+
+export interface LabDrawing extends LabDrawingSummary {
+  build: unknown // 结构由 web/src/labs/builder.ts 的 Build 决定
+}
+
+export const listLabDrawings = (labId = '') =>
+  apiFetch(`/api/labs/drawings?lab_id=${encodeURIComponent(labId)}`).then((r) =>
+    json<LabDrawingSummary[]>(r),
+  )
+
+export const getLabDrawing = (id: number) =>
+  apiFetch(`/api/labs/drawings/${id}`).then((r) => json<LabDrawing>(r))
+
+export const createLabDrawing = (payload: { name: string; lab_id: string; build: unknown }) =>
+  apiFetch('/api/labs/drawings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }).then((r) => json<LabDrawing>(r))
+
+export const overwriteLabDrawing = (
+  id: number,
+  payload: { name: string; lab_id: string; build: unknown },
+) =>
+  apiFetch(`/api/labs/drawings/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }).then((r) => json<LabDrawing>(r))
+
+export const deleteLabDrawing = (id: number) =>
+  apiFetch(`/api/labs/drawings/${id}`, { method: 'DELETE' }).then((r) =>
+    json<{ status: string; name: string }>(r),
+  )
+
 export interface Formula {
   id: number
   title: string
@@ -201,6 +279,51 @@ export const deleteFormula = (id: number) =>
 
 export interface WrongItem extends ProblemListItem {
   last_feedback: string
+}
+
+/** 一条做题足迹：判定 + 时间 + 题目定位。 */
+export interface AttemptHistoryItem {
+  attempt_id: number
+  problem_id: number
+  material: string
+  page: number
+  number: string
+  excerpt: string
+  knowledge: string[]
+  verdict: string
+  answer_text: string
+  feedback: string
+  created_at: string
+}
+
+export interface AttemptHistoryCounts {
+  total: number
+  correct: number
+  partial: number
+  wrong: number
+  unknown: number
+  problems_touched: number
+  problems_ever_wrong: number
+}
+
+export interface AttemptHistory {
+  counts: AttemptHistoryCounts
+  filtered: number
+  items: AttemptHistoryItem[]
+}
+
+/** 做题足迹：counts 恒为该课程全量统计，items 受 verdict 与分页影响。 */
+export const getAttemptHistory = (
+  courseId: number,
+  params: { verdict?: string; offset?: number; limit?: number } = {},
+) => {
+  const query = new URLSearchParams()
+  if (params.verdict) query.set('verdict', params.verdict)
+  query.set('offset', String(params.offset ?? 0))
+  query.set('limit', String(params.limit ?? 200))
+  return apiFetch(`/api/courses/${courseId}/attempts?${query.toString()}`).then((r) =>
+    json<AttemptHistory>(r),
+  )
 }
 
 export interface GraphProblemRef {
@@ -289,6 +412,14 @@ export const createCourse = (name: string) =>
     body: JSON.stringify({ name }),
   }).then((r) => json<Course>(r))
 
+/** 改课程名或简介；只传要改的字段。 */
+export const updateCourse = (courseId: number, payload: { name?: string; description?: string }) =>
+  apiFetch(`/api/courses/${courseId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }).then((r) => json<Course>(r))
+
 export const listMaterials = (courseId: number) =>
   apiFetch(`/api/courses/${courseId}/materials`).then((r) => json<Material[]>(r))
 
@@ -326,11 +457,15 @@ export async function uploadMaterial(
   return json<Material>(await apiFetch(`/api/courses/${courseId}/materials`, { method: 'POST', body: form }))
 }
 
-export const updateMaterialKind = (materialId: number, kind: string) =>
+/** 改资料类型或资料名；只传要改的字段。改名会连带磁盘上的原件一起改名。 */
+export const updateMaterial = (
+  materialId: number,
+  payload: { kind?: string; filename?: string },
+) =>
   apiFetch(`/api/materials/${materialId}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ kind }),
+    body: JSON.stringify(payload),
   }).then((r) => json<Material>(r))
 
 export const listProblemSources = (courseId: number) =>

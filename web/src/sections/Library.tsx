@@ -26,10 +26,11 @@ import {
   regenerateSummary,
   searchCourse,
   streamChat,
-  updateMaterialKind,
+  updateMaterial,
   uploadMaterial,
 } from '../api'
 import RichText from '../components/RichText'
+import { checkMaterialName, isRealRename } from '../components/rename'
 import {
   acceptHint,
   allZonesCollapsed,
@@ -92,6 +93,9 @@ export default function Library({
   const [filter, setFilter] = useState('')
   const [notice, setNotice] = useState('')
   const [deleting, setDeleting] = useState<number | null>(null)
+  const [renamingId, setRenamingId] = useState<number | null>(null)
+  const [renameDraft, setRenameDraft] = useState('')
+  const [renameBusy, setRenameBusy] = useState(false)
   const [uploadKind, setUploadKind] = useState('auto')
   const [collapsed, setCollapsed] = useState<Set<ZoneKind>>(loadCollapsed)
   // 折叠是一次性读取（懒初始化），之后每次变化写回 localStorage 做持久化
@@ -427,7 +431,7 @@ export default function Library({
   async function changeKind(kind: string) {
     if (!current || kind === current.kind) return
     try {
-      const updated = await updateMaterialKind(current.id, kind)
+      const updated = await updateMaterial(current.id, { kind })
       setCurrent(updated)
       setMaterials((ms) => ms.map((m) => (m.id === updated.id ? updated : m)))
       setSummary(null)
@@ -437,6 +441,35 @@ export default function Library({
       setNotice(`材料类型已改为「${materialKindLabel(kind)}」`)
     } catch (e) {
       setNotice((e as Error).message)
+    }
+  }
+
+  // 改名会连带磁盘上的原件一起改名（stored_path 同步），所以忙碌中的资料由后端拒绝。
+  async function renameMaterial(m: Material) {
+    const check = checkMaterialName(renameDraft)
+    if (!check.ok) {
+      setNotice(check.message)
+      return
+    }
+    if (!isRealRename(check, m.filename)) {
+      setRenamingId(null)
+      return
+    }
+    if (materials.some((x) => x.id !== m.id && x.filename === check.value)) {
+      setNotice(`这门课里已经有同名资料：${check.value}`)
+      return
+    }
+    setRenameBusy(true)
+    try {
+      const updated = await updateMaterial(m.id, { filename: check.value })
+      setMaterials((ms) => ms.map((x) => (x.id === updated.id ? updated : x)))
+      if (current?.id === m.id) setCurrent(updated)
+      setRenamingId(null)
+      setNotice(`资料已改名为《${updated.filename}》，磁盘上的原件一起改了名。`)
+    } catch (e) {
+      setNotice((e as Error).message)
+    } finally {
+      setRenameBusy(false)
     }
   }
 
@@ -569,27 +602,73 @@ export default function Library({
                     <ul className="material-list">
                       {zone.materials.map((m, index) => (
                         <li key={m.id} style={{ '--i': index } as CSSProperties}>
-                          <button
-                            className={current?.id === m.id ? 'material-item active' : 'material-item'}
-                            title={m.error || m.filename}
-                            disabled={m.status !== 'ready'}
-                            onClick={() => openMaterial(m)}
-                          >
-                            <span className={`dot ${m.status}`} />
-                            <span className="material-name">{m.filename}</span>
-                            <span className={`kind-badge ${m.kind}`}>{materialKindLabel(m.kind)}</span>
-                            <span className="material-status">
-                              {m.status === 'ready' ? `${m.chunk_count} 块` : statusText(m.status)}
-                            </span>
-                          </button>
-                          <button
-                            className="material-del"
-                            title={`删除《${m.filename}》及其知识块${m.kind === 'exam' ? '（题库里已切出的题目会保留）' : ''}`}
-                            disabled={deleting !== null}
-                            onClick={() => void dropMaterial(m)}
-                          >
-                            {deleting === m.id ? '删除中…' : '删除'}
-                          </button>
+                          {renamingId === m.id ? (
+                            <div className="material-rename">
+                              <input
+                                autoFocus
+                                aria-label="资料新名字"
+                                value={renameDraft}
+                                aria-invalid={!checkMaterialName(renameDraft).ok}
+                                title={checkMaterialName(renameDraft).message}
+                                disabled={renameBusy}
+                                onChange={(e) => setRenameDraft(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') void renameMaterial(m)
+                                  if (e.key === 'Escape') setRenamingId(null)
+                                }}
+                              />
+                              <button
+                                className="mini"
+                                disabled={renameBusy || !checkMaterialName(renameDraft).ok}
+                                onClick={() => void renameMaterial(m)}
+                              >
+                                {renameBusy ? '保存中…' : '保存'}
+                              </button>
+                              <button
+                                className="mini ghost"
+                                disabled={renameBusy}
+                                onClick={() => setRenamingId(null)}
+                              >
+                                取消
+                              </button>
+                            </div>
+                          ) : (
+                            <>
+                              <button
+                                className={current?.id === m.id ? 'material-item active' : 'material-item'}
+                                title={m.error || m.filename}
+                                disabled={m.status !== 'ready'}
+                                onClick={() => openMaterial(m)}
+                              >
+                                <span className={`dot ${m.status}`} />
+                                <span className="material-name">{m.filename}</span>
+                                <span className={`kind-badge ${m.kind}`}>{materialKindLabel(m.kind)}</span>
+                                <span className="material-status">
+                                  {m.status === 'ready' ? `${m.chunk_count} 块` : statusText(m.status)}
+                                </span>
+                              </button>
+                              <button
+                                className="material-edit"
+                                title={`把《${m.filename}》改个名字（磁盘上的原件一起改名）`}
+                                disabled={deleting !== null}
+                                onClick={() => {
+                                  setRenamingId(m.id)
+                                  setRenameDraft(m.filename)
+                                  setNotice('')
+                                }}
+                              >
+                                改名
+                              </button>
+                              <button
+                                className="material-del"
+                                title={`删除《${m.filename}》及其知识块${m.kind === 'exam' ? '（题库里已切出的题目会保留）' : ''}`}
+                                disabled={deleting !== null}
+                                onClick={() => void dropMaterial(m)}
+                              >
+                                {deleting === m.id ? '删除中…' : '删除'}
+                              </button>
+                            </>
+                          )}
                         </li>
                       ))}
                     </ul>

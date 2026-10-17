@@ -96,7 +96,7 @@ def _due_item(
     return ReviewDueItem(
         **_card_read(card).model_dump(),
         number=problem.number,
-        material=material.filename if material else "未知材料",
+        material=material.filename if material else "来源已删除",
         page=problem.page,
         excerpt=_excerpt(problem.stem),
         knowledge=_problem_knowledge(problem),

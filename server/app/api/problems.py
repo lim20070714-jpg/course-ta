@@ -15,6 +15,9 @@ from app.core import problems as core
 from app.core.crops import find_problem_rect
 from app.models import Attempt, Material, Problem
 from app.schemas import (
+    AttemptHistoryCounts,
+    AttemptHistoryItem,
+    AttemptHistoryRead,
     AttemptRead,
     GradeRequest,
     ProblemDetailRead,
@@ -185,7 +188,7 @@ def list_problems(
                 ProblemListItem(
                     id=p.id or 0,
                     material_id=p.material_id,
-                    material=names.get(p.material_id or -1, "未知材料"),
+                    material=names.get(p.material_id or -1, "来源已删除"),
                     page=p.page,
                     number=p.number,
                     excerpt=_excerpt(p.stem),
@@ -196,6 +199,65 @@ def list_problems(
             )
         total = len(items)
         return ProblemListRead(total=total, items=items[offset : offset + limit])
+
+
+@router.get("/courses/{course_id}/attempts", response_model=AttemptHistoryRead)
+def attempt_history(
+    course_id: int,
+    verdict: str = Query("", pattern="^(|correct|partial|wrong|unknown)$"),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+) -> AttemptHistoryRead:
+    """做题足迹：整门课的作答记录，最新在前。
+
+    Attempt 上没有 course_id（题目属于哪门课记在 Problem 上），所以要 join Problem 才能按课取。
+    counts 恒为全量统计、只有 items 受筛选与分页影响——筛「做错」时也能看见一共做了多少题。
+    """
+    with Session(db.engine) as session:
+        names = _material_names(session, course_id)
+        rows = list(
+            reversed(  # 逐题详情用正序取「最近一次」，足迹要倒序，直接反序列化更省事
+                session.exec(
+                    select(Attempt, Problem)
+                    .join(Problem, Attempt.problem_id == Problem.id)
+                    .where(Problem.course_id == course_id)
+                    .order_by(Attempt.created_at, Attempt.id)  # type: ignore[arg-type]
+                ).all()
+            )
+        )
+        touched = {a.problem_id for a, _ in rows}
+        ever_wrong = {a.problem_id for a, _ in rows if a.verdict in ("wrong", "partial")}
+        by_verdict = {
+            v: sum(1 for a, _ in rows if a.verdict == v)
+            for v in ("correct", "partial", "wrong")
+        }
+        counts = AttemptHistoryCounts(
+            total=len(rows),
+            correct=by_verdict["correct"],
+            partial=by_verdict["partial"],
+            wrong=by_verdict["wrong"],
+            unknown=len(rows) - sum(by_verdict.values()),
+            problems_touched=len(touched),
+            problems_ever_wrong=len(ever_wrong),
+        )
+        picked = [(a, p) for a, p in rows if not verdict or a.verdict == verdict]
+        items = [
+            AttemptHistoryItem(
+                attempt_id=a.id or 0,
+                problem_id=a.problem_id,
+                material=names.get(p.material_id or -1, "已断开的来源"),
+                page=p.page,
+                number=p.number,
+                excerpt=_excerpt(p.stem),
+                knowledge=core.parse_tags(p.knowledge),
+                verdict=a.verdict,
+                answer_text=a.answer_text,
+                feedback=a.feedback,
+                created_at=a.created_at,
+            )
+            for a, p in picked[offset : offset + limit]
+        ]
+        return AttemptHistoryRead(counts=counts, filtered=len(picked), items=items)
 
 
 @router.get("/problems/{problem_id}", response_model=ProblemDetailRead)
@@ -214,7 +276,7 @@ def problem_detail(problem_id: int) -> ProblemDetailRead:
             id=problem.id or 0,
             course_id=problem.course_id,
             material_id=problem.material_id,
-            material=names.get(problem.material_id or -1, "未知材料"),
+            material=names.get(problem.material_id or -1, "来源已删除"),
             page=problem.page,
             number=problem.number,
             stem=problem.stem,
@@ -348,7 +410,7 @@ def wrongbook(course_id: int) -> list[WrongItem]:
                 WrongItem(
                     id=p.id or 0,
                     material_id=p.material_id,
-                    material=names.get(p.material_id or -1, "未知材料"),
+                    material=names.get(p.material_id or -1, "来源已删除"),
                     page=p.page,
                     number=p.number,
                     excerpt=_excerpt(p.stem),

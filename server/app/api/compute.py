@@ -1,12 +1,18 @@
-from fastapi import APIRouter, HTTPException
-from sqlmodel import Session, select
+import json
+from typing import Any
+
+from fastapi import APIRouter, HTTPException, Query
+from sqlmodel import Session, delete, select
 
 from app import db
 from app.core import compute
-from app.models import Formula
+from app.models import ComputeRun, Formula
 from app.schemas import (
+    ComputeHistoryCleared,
+    ComputeHistoryRead,
     ComputeRequest,
     ComputeResult,
+    ComputeRunRead,
     FormulaCreate,
     FormulaRead,
     FormulaUpdate,
@@ -15,6 +21,62 @@ from app.schemas import (
 router = APIRouter(tags=["compute"])
 
 _CATEGORIES = ("微积分", "代数", "变换", "线性代数", "复数", "物理与工程", "自定义")
+HISTORY_KEEP = 200  # 计算台只留最近这么多条，写满就裁最老的
+_AUX_FIELDS = ("var", "point", "lower", "upper", "order")
+
+
+def record_run(req: ComputeRequest, result: ComputeResult | None, error: str) -> None:
+    """把这次运算（成功或失败）记进历史，并把超出上限的旧行裁掉。
+
+    失败也记：报错信息（「未识别的函数」「积分超时」）正是下次要避开的坑。
+    历史只是附属功能，写失败不能把运算结果一起拖垮，所以这里吞掉异常。
+    """
+    args: dict[str, Any] = {field: getattr(req, field) for field in _AUX_FIELDS}
+    args["symbols"] = [symbol.model_dump() for symbol in req.symbols]
+    try:
+        with Session(db.engine) as session:
+            session.add(
+                ComputeRun(
+                    expr=req.expr[:2000],
+                    op=req.op,
+                    args=json.dumps(args, ensure_ascii=False),
+                    result_latex=result.latex if result else "",
+                    result_plain=result.plain if result else "",
+                    approx=result.approx if result else "",
+                    error=error,
+                )
+            )
+            session.commit()
+            stale = list(
+                session.exec(
+                    select(ComputeRun.id)
+                    .order_by(ComputeRun.id.desc())  # type: ignore[attr-defined]
+                    .offset(HISTORY_KEEP)
+                ).all()
+            )
+            if stale:
+                session.exec(delete(ComputeRun).where(ComputeRun.id.in_(stale)))  # type: ignore[attr-defined]
+                session.commit()
+    except Exception:  # noqa: BLE001 - 历史记录不影响运算本身
+        return
+
+
+def run_read(row: ComputeRun) -> ComputeRunRead:
+    try:
+        args = json.loads(row.args)
+    except json.JSONDecodeError:
+        args = {}
+    return ComputeRunRead(
+        id=row.id or 0,
+        expr=row.expr,
+        op=row.op,
+        args=args if isinstance(args, dict) else {},
+        result_latex=row.result_latex,
+        result_plain=row.result_plain,
+        approx=row.approx,
+        error=row.error,
+        created_at=row.created_at,
+    )
 
 
 @router.post("/compute/evaluate", response_model=ComputeResult)
@@ -22,8 +84,30 @@ def compute_evaluate(req: ComputeRequest) -> ComputeResult:
     try:
         result = compute.evaluate(req.model_dump())
     except ValueError as exc:
+        record_run(req, None, str(exc))
         raise HTTPException(422, str(exc)) from exc
-    return ComputeResult(**result)
+    out = ComputeResult(**result)
+    record_run(req, out, "")
+    return out
+
+
+@router.get("/compute/history", response_model=ComputeHistoryRead)
+def compute_history(limit: int = Query(50, ge=1, le=HISTORY_KEEP)) -> ComputeHistoryRead:
+    """计算台历史，最新在前；`args` 足够把这一次运算原样回填到输入区。"""
+    with Session(db.engine) as session:
+        rows = list(session.exec(select(ComputeRun).order_by(ComputeRun.id.desc())).all())
+    return ComputeHistoryRead(
+        total=len(rows), kept=HISTORY_KEEP, items=[run_read(r) for r in rows[:limit]]
+    )
+
+
+@router.delete("/compute/history", response_model=ComputeHistoryCleared)
+def clear_compute_history() -> ComputeHistoryCleared:
+    with Session(db.engine) as session:
+        removed = len(session.exec(select(ComputeRun.id)).all())
+        session.exec(delete(ComputeRun))
+        session.commit()
+    return ComputeHistoryCleared(removed=removed)
 
 
 def _to_read(formula: Formula) -> FormulaRead:

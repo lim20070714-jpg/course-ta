@@ -1,7 +1,23 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { ComputeResult, Formula } from '../api'
-import { createFormula, deleteFormula, evaluateCompute, listFormulas, updateFormula } from '../api'
+import type { ComputeResult, ComputeRun, Formula } from '../api'
+import {
+  clearComputeHistory,
+  createFormula,
+  deleteFormula,
+  evaluateCompute,
+  getComputeHistory,
+  listFormulas,
+  updateFormula,
+} from '../api'
 import RichText from '../components/RichText'
+import {
+  argSummary,
+  dedupeRuns,
+  groupRuns,
+  HISTORY_LIMIT,
+  opLabel,
+  runOutcome,
+} from '../compute/history'
 import {
   CATEGORIES,
   MATRIX_TEMPLATES,
@@ -12,6 +28,7 @@ import {
   toPreviewTex,
   type SymbolDef,
 } from '../compute/ops'
+import { localTimeLabel } from '../components/traceGroups'
 
 interface FormulaDraft {
   id: number | null
@@ -45,7 +62,11 @@ export default function Compute() {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [copied, setCopied] = useState('')
+  const [history, setHistory] = useState<ComputeRun[]>([])
+  const [historyTotal, setHistoryTotal] = useState(0)
+  const [usedRun, setUsedRun] = useState<ComputeRun | null>(null)
   const exprRef = useRef<HTMLTextAreaElement>(null)
+  const mainRef = useRef<HTMLElement>(null)
 
   const needs = opNeeds(op)
 
@@ -53,6 +74,19 @@ export default function Compute() {
     listFormulas()
       .then(setFormulas)
       .catch((e: Error) => setNotice(`加载公式库失败：${e.message}`))
+  }, [])
+
+  function loadHistory() {
+    getComputeHistory(HISTORY_LIMIT)
+      .then((h) => {
+        setHistory(h.items)
+        setHistoryTotal(h.total)
+      })
+      .catch(() => setHistory([]))
+  }
+
+  useEffect(() => {
+    loadHistory()
   }, [])
 
   const categories = useMemo(() => {
@@ -70,6 +104,8 @@ export default function Compute() {
     () => (category === '全部' ? formulas : formulas.filter((f) => f.category === category)),
     [formulas, category],
   )
+
+  const historyDays = useMemo(() => groupRuns(dedupeRuns(history)), [history])
 
   function insert(text: string) {
     const el = exprRef.current
@@ -109,6 +145,7 @@ export default function Compute() {
     setBusy(true)
     setError('')
     setResult(null)
+    setUsedRun(null)
     try {
       const payload = {
         expr: input,
@@ -127,6 +164,43 @@ export default function Compute() {
       setError((e as Error).message)
     } finally {
       setBusy(false)
+      loadHistory()
+    }
+  }
+
+  /** 点历史 = 把这次运算原样搬回输入区，并直接显示当时记下（或报错）的结果。 */
+  function restore(r: ComputeRun) {
+    setExpr(r.expr)
+    setOp(r.op)
+    setVariable(r.args.var ?? 'x')
+    setPoint(r.args.point ?? '0')
+    setLower(r.args.lower ?? '')
+    setUpper(r.args.upper ?? '')
+    setOrder(r.args.order ?? 1)
+    setSymbols(r.args.symbols ?? [])
+    setCopied('')
+    if (r.error) {
+      setResult(null)
+      setError(r.error)
+    } else {
+      setError('')
+      setResult({ latex: r.result_latex, plain: r.result_plain, approx: r.approx })
+      setResultSeq((n) => n + 1)
+    }
+    setUsedRun(r)
+    mainRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  async function clearHistory() {
+    if (!window.confirm('清空计算历史？只删历史记录，公式库与符号设置不受影响。')) return
+    try {
+      const r = await clearComputeHistory()
+      setHistory([])
+      setHistoryTotal(0)
+      setUsedRun(null)
+      setNotice(`已清空 ${r.removed} 条计算历史。`)
+    } catch (e) {
+      setNotice((e as Error).message)
     }
   }
 
@@ -301,7 +375,7 @@ export default function Compute() {
         </ul>
       </aside>
 
-      <main className="compute-main">
+      <main className="compute-main" ref={mainRef}>
         {notice && (
           <div className="lib-notice" role="alert">
             {notice}
@@ -443,7 +517,14 @@ export default function Compute() {
           )}
           {result && (
             <div className="cmp-result-in stagger-item" key={resultSeq}>
-              <div className="result-label">结果</div>
+              <div className="result-label">
+                结果
+                {usedRun && (
+                  <span className="cmp-from-history">
+                    {localTimeLabel(usedRun.created_at)} 那次运算的记录
+                  </span>
+                )}
+              </div>
               <div className="compute-result">
                 <RichText text={`$$${result.latex}$$`} />
               </div>
@@ -479,6 +560,71 @@ export default function Compute() {
                 </span>
               </div>
             </div>
+          )}
+        </div>
+
+        <div className="compute-card cmp-history">
+          <div className="cmp-history-head">
+            <span className="result-label">计算历史（{history.length}）</span>
+            <span className="cmp-history-tools">
+              <button className="mini ghost" onClick={loadHistory} title={`重新拉取最近 ${HISTORY_LIMIT} 条`}>
+                刷新
+              </button>
+              {history.length > 0 && (
+                <button className="mini danger" onClick={clearHistory}>
+                  清空
+                </button>
+              )}
+            </span>
+          </div>
+          {history.length === 0 ? (
+            <p className="compute-empty">
+              还没有计算记录。这里的运算都会留下来（包括没算出来的），换浏览器也能接着看。
+            </p>
+          ) : (
+            <>
+              {historyTotal > history.length && (
+                <p className="cmp-history-more">
+                  共 {historyTotal} 条，这里只显示最近 {history.length} 条。
+                </p>
+              )}
+              {historyDays.map((day) => (
+                <div key={day.key} className="cmp-hist-day">
+                  <div className="cmp-hist-day-head">
+                    {day.label}
+                    <span className="cmp-hist-day-count">{day.items.length} 次</span>
+                  </div>
+                  <ul className="cmp-hist-list">
+                    {day.items.map((r) => {
+                      const outcome = runOutcome(r)
+                      const args = argSummary(r)
+                      return (
+                        <li key={r.id}>
+                          <button
+                            className={usedRun?.id === r.id ? 'cmp-hist-item active' : 'cmp-hist-item'}
+                            onClick={() => restore(r)}
+                            title="放回输入框，并显示当时记下的结果"
+                          >
+                            <span className="cmp-hist-time">{localTimeLabel(r.created_at)}</span>
+                            <span className="cmp-hist-main">
+                              <span className="cmp-hist-expr mono">{r.expr}</span>
+                              <span className="cmp-hist-meta">
+                                {opLabel(r.op)}
+                                {args && ` · ${args}`}
+                              </span>
+                              <span className={outcome.failed ? 'cmp-hist-out fail' : 'cmp-hist-out'}>
+                                {outcome.failed && <span aria-hidden="true">⚠ </span>}
+                                {outcome.text}
+                              </span>
+                            </span>
+                          </button>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                </div>
+              ))}
+            </>
           )}
         </div>
       </main>

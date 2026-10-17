@@ -152,7 +152,7 @@ def exam_detail(exam_id: int) -> MockExamDetail:
             MockExamItem(
                 problem_id=p.id or 0,
                 number=p.number,
-                material=names.get(p.material_id or -1, "未知材料"),
+                material=names.get(p.material_id or -1, "来源已删除"),
                 page=p.page,
                 knowledge=core.knowledge_of(p),
                 stem=p.stem,

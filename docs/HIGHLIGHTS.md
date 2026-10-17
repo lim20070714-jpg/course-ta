@@ -5,7 +5,7 @@
 ## 它是什么
 
 用一门真实的电路类课程做出来、并且自己一直在用的**分区式**学习平台，而不是又一个聊天机器人：
-课程资料、题库与解答、复习计划、限时模考、计算台、知识图谱、电路实验台 7 个分区各管一件事，
+课程资料、题库与解答、做题足迹、复习计划、限时模考、计算台、知识图谱、电路实验台 8 个分区各管一件事，
 LLM 只做支撑（抽取、批改、总结、图谱归纳），学生始终在结构化界面上学习。它不绑定某门课、某位老师或某所学校——
 换一批材料就是你的另一门课。后端 FastAPI + SQLite + PyMuPDF + SymPy，前端 React + TypeScript + KaTeX，
 自研 SPICE 式电路仿真引擎跑在浏览器里，不依赖任何仿真服务。
@@ -14,16 +14,16 @@ LLM 只做支撑（抽取、批改、总结、图谱归纳），学生始终在�
 
 | 指标 | 值 |
 | --- | --- |
-| 主界面分区 | 7 个（⌘1..7 与命令面板直达） |
-| 后端 API operation | 48 个（覆盖 38 条路径），OpenAPI 自动生成 |
-| 自动化测试 | **610** 个：后端 261（pytest，全部离线）+ 前端 349（Vitest，14 个文件） |
+| 主界面分区 | 8 个（⌘1..8 与命令面板直达） |
+| 后端 API operation | 57 个（覆盖 42 条路径），OpenAPI 自动生成 |
+| 自动化测试 | **702** 个：后端 315（pytest，全部离线）+ 前端 387（Vitest，18 个文件） |
 | 静态检查 | ruff + tsc + oxlint 零告警；CI 2 个 job（后端 / 前端）全绿 |
-| 代码规模 | 约 31.1k 行：后端 `server/app` 5,905、`server/tests` 3,324、前端 `web/src` ts/tsx 16,180、`web/src/index.css` 5,702 |
+| 代码规模 | 约 34.2k 行：后端 `server/app` 6,432、`server/tests` 3,981、前端 `web/src` ts/tsx 17,644、`web/src/index.css` 6,135 |
 | 自托管 | `docker-compose` 一键；前端 nginx 静态托管 + 反向代理；默认 `http://localhost:8080` |
 | 密钥模式 | BYOK：用户填自己的 Key，服务端可完全不留密钥 |
 | 许可 | MIT |
 
-## 六个真正的技术难点
+## 七个真正的技术难点
 
 **1. 试卷 / 课件 PDF 的版面级还原（`server/app/core/ingest.py`、`glyph_tables.py`、`crops.py`）**
 课件里的公式多是 MathType/Wingdings 嵌入的匿名子集字体，ToUnicode 映射丢失，PyMuPDF 只能回退成
@@ -56,7 +56,7 @@ PDF 拆成一行只有两三个字的碎片。管线因此分四步：按 span �
 **5. 限时模考的服务端权威计时与答案保密（`server/app/core/exams.py`、`api/exams.py`，测试 17 个）**
 倒计时不放在浏览器：服务端记录 `deadline_at = started_at + duration_min`，每个响应回传 `seconds_left`，
 刷新页面不会重置，到点自动交卷并标记 `late`。组卷只取「题干与参考答案都非空」的题（没有答案就无法给可信判定），
-支持 seed 复现同一份卷子；参考答案在 `status != done` 之前**绝不下发**。批改是后台任务（一题一次模型调用，
+抽取核心接受 seed 以便复现同一份卷子（测试依赖这点）；参考答案在 `status != done` 之前**绝不下发**。批改是后台任务（一题一次模型调用，
 整卷可能几分钟），进度与逐题判定分别放在进程内任务表和数据库里，服务重启只丢进度不丢成绩。
 做错的题同步写入 Attempt，于是模考里的错题自然进入错题本和复习计划。
 
@@ -69,14 +69,26 @@ PDF 拆成一行只有两三个字的碎片。管线因此分四步：按 span �
 （解析 / 总结 / 拆题）把结果写回来，脏数据就会「认领」到新材料身上。
 因此删除接口在任务进行中直接返回 409，而不是先删行再指望任务自己发现材料没了。
 
+**7. 改名的两处数据一致性与「历史存在哪」（`server/app/api/courses.py`、`web/src/compute/history.ts`、`labs/drawings.ts`）**
+`Material.filename` 同时是显示名和磁盘路径的一部分（`data/materials/{course_id}/{filename}`），所以改名必须让
+`Path.replace()` 与 `stored_path` 一起生效；页图按 `media/{material_id}/` 存放，与文件名无关，改名后跳页仍然可用。
+校验规则前端（`components/rename.ts`）与后端各写一份、口径一致，让报错立刻出现而不是等一次请求。两个真实踩过的坑：
+Python 里 `set('<>:"|?*\x00-\x1f')` 会把 `\x00-\x1f` 展开成 `\x00`、`-`、`\x1f` 三个字符，于是所有带连字符的课件名
+（`A1-01电路定律.pdf`）都被误判为非法——控制字符必须用 `{chr(i) for i in range(0x20)}` 生成；
+PATCH 若直接返回 ORM 对象，`page_count` 会退回表里的 0（列表口径来自 `Chunk` 的最大页码），前端那一行会被重绘成「0 页」。
+做题足迹、计算历史、实验台图纸三类历史一律**建表存服务端**而不是 localStorage：换浏览器不丢，也能和外键对齐。
+计算台连失败记录（422 报错）一起留，点一条回填表达式与参数、直接展示当时算出的结果或错误并标注「那次运算的记录」，
+不重复消耗一次 sympy 计算。图纸保存只校验顶层结构（`comps` / `wires` 是数组、元素是对象、序列化 ≤ 200k 字符），
+画布语义留给前端，服务端不被编辑器版本绑死；载入时前端再做一次形状守卫，坏数据只会「读不出来」，不会崩画布。
+
 ## 工程实践
 
 - **BYOK 用 contextvar 做按请求覆盖**（`server/app/config.py`）：请求头里的 Key / Base URL / Model 只在该请求的
   上下文内生效，不改全局配置；头部值截断到 300 字符；`describe_runtime` 与 `/api/config` 只回答「服务端有没有配密钥」，
   永不回显密钥本身。中间件 `BYOKMiddleware` 是**原生 ASGI** 而非 `BaseHTTPMiddleware`——后者会缓冲响应，
   会破坏项目里大量使用的 SSE 流式输出。
-- **测试不依赖本机配置**：涉及密钥的用例用哨兵值 monkeypatch，253 个后端测试在任何没有 `.env` 的机器上
-  （包括 CI）都能离线通过；前端 349 个用例同理。
+- **测试不依赖本机配置**：涉及密钥的用例用哨兵值 monkeypatch，315 个后端测试在任何没有 `.env` 的机器上
+  （包括 CI）都能离线通过；前端 387 个用例同理。
 - **CI 门禁**：后端 `uv sync → ruff check → pytest`，前端 `npm ci → oxlint → vitest → tsc -b && vite build`，两个 job。
 - **可移植性**：服务端与前端各有 Dockerfile，`docker-compose.yml` 用命名卷持久化 SQLite 与资料目录；
   文档默认面向本机 `localhost`，域名/反代只作为对外分享的进阶路径。
@@ -84,20 +96,20 @@ PDF 拆成一行只有两三个字的碎片。管线因此分四步：按 span �
 
 ## 真实数据规模（本地实例，未入库）
 
-截至 2026-10-17：3 门课、60 份材料 / 约 1.6 万个知识块 / 250 道结构化题目 / 64 个概念、192 条关系边。
+截至 2026-10-17：3 门课、46 份材料 / 约 1.5 万个知识块 / 639 道结构化题目 / 117 个概念、315 条关系边。
 平台不是为演示造的玩具，而是自己每周真在用、并被这些真实数据压过一遍的——数字还会继续长。
 
 ## 复现这些数字
 
 ```bash
 cd server
-uv run pytest -q          # 261 passed（无需 API key）
+uv run pytest -q          # 315 passed（无需 API key）
 uv run ruff check .       # 零告警
-uv run python -c "from app.main import app; print(sum(1 for p in app.openapi()['paths'].values() for m in p if m in {'get','post','put','patch','delete'}))"   # 48
+uv run python -c "from app.main import app; print(sum(1 for p in app.openapi()['paths'].values() for m in p if m in {'get','post','put','patch','delete'}))"   # 57
 
 cd ../web
-npm run lint              # 49 个文件，0 warning 0 error
-npm test                  # 349 passed
+npm run lint              # 57 个文件，0 warning 0 error
+npm test                  # 387 passed
 ```
 
 接口细节见 [API.md](API.md)，部署见 [DEPLOY.md](DEPLOY.md)，功能全景见 [../README.md](../README.md)。

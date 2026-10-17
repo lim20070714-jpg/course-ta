@@ -144,10 +144,17 @@ curl -N -X POST http://127.0.0.1:8000/api/chat \
 | --- | --- | --- |
 | POST | `/api/courses` | 建课，body `{"name","description"}`；名称不能为空 |
 | GET | `/api/courses` | 课程列表（含 `exam_date`，`YYYY-MM-DD` 或 `null`） |
+| PATCH | `/api/courses/{course_id}` | 改课程名 / 简介，body `{"name","description"}`（只传要改的字段，`description` 传空串是清空）；名最长 60 字，空名 400，两个字段都不传也 400 |
 | GET | `/api/courses/{course_id}/materials` | 课程下的材料列表（含 `status`、`page_count`、`image_pages`） |
 | POST | `/api/courses/{course_id}/materials` | 上传材料，`multipart/form-data`：`file` + `kind`（默认 `auto`）。**立即返回**，解析在后台任务里跑 |
-| PATCH | `/api/materials/{material_id}` | 修改材料类型，body `{"kind"}` |
+| PATCH | `/api/materials/{material_id}` | 改名与/或改类型，body `{"filename","kind"}`（字段可选）。返回体与列表口径一致（`page_count` 来自知识块的最大页码） |
 | DELETE | `/api/materials/{material_id}` | 删除材料：知识块、笔记与原文件/原页图一并清除，返回 `{"status":"deleted","filename","chunks_removed","problems_kept"}` |
+
+- 改名的语义：`filename` **既是显示名也是磁盘上的原件名**（`data/materials/{course_id}/{filename}`），接口会把
+  `Path.replace()` 与 `stored_path` 一起改掉；页图按 `media/{material_id}/` 存放，与文件名无关，改名后跳页仍可用。
+  名字校验：最长 120 字符、不能含 `< > : " | ? *` 与控制字符、必须保留受支持的后缀、同一门课里不能撞名（409）。
+  `kind` 是人工标签，改名**不会**重新判定它（`auto` 只在上传时生效）。
+- 改名同样受后台任务约束：材料正在入库 / 生成笔记 / 拆题时返回 `409`，等它跑完再改——避免任务把结果写到改名后的行上。
 
 - `DELETE` 的保留语义：由这份材料切出的**题目会留下**（`material_id` 置空），因为作答记录、错题本、复习卡与模考成绩都挂在题目上；
   代价是这些题不再有「原题原页图」。知识图谱的概念出处同理置空，脉络本身不动。
@@ -196,7 +203,12 @@ curl -X POST http://127.0.0.1:8000/api/courses/1/materials \
 | POST | `/api/problems/{problem_id}/grade` | 批改作答（SSE）。body `{"answer":"..."}`；结果会写入错题本 |
 | POST | `/api/problems/{problem_id}/solution` | AI 详解（SSE） |
 | GET | `/api/courses/{course_id}/wrongbook` | 错题本：最近判定为 `wrong` / `partial` 的题目 |
+| GET | `/api/courses/{course_id}/attempts` | 做题足迹：整门课的作答记录，最新在前。查询参数 `verdict`（`correct`/`partial`/`wrong`/`unknown`）、`offset`、`limit`（1–500，默认 100） |
 | GET | `/api/courses/{course_id}/problem-tags` | 知识点及其题目数（按题数降序） |
+
+做题足迹的返回体是 `{"counts","filtered","items"}`：`counts` **恒为全量**（`total` / `correct` / `partial` / `wrong` / `unknown` /
+`problems_touched` 至少做过一次的题数 / `problems_ever_wrong` 曾做错或半对的题数，含后来做对的），`filtered` 是当前筛选下的条数，
+`items[]` 每条带 `problem_id`、来源材料与页码、题号、题干摘录、知识点、`verdict`、当时的作答与点评，用于按天分组并跳回原题。
 
 **SSE 事件**：
 
@@ -220,6 +232,12 @@ curl -X POST http://127.0.0.1:8000/api/courses/1/materials \
 | POST | `/api/formulas` | 新建公式 `{"title","latex","category","note"}` |
 | PUT | `/api/formulas/{formula_id}` | 修改公式（字段均可选） |
 | DELETE | `/api/formulas/{formula_id}` | 删除公式 |
+| GET | `/api/compute/history?limit=50` | 计算历史，最新在前。`limit` 1–200。返回 `{"total","kept","items"}`，每条含 `expr`/`op`/`args`/`result_latex`/`result_plain`/`approx`/`error`/`created_at` |
+| DELETE | `/api/compute/history` | 清空计算历史，返回 `{"status":"cleared","removed"}`；只删记录，公式库与符号设置不受影响 |
+
+计算历史是**每次运算都落一条**（成功与失败都记，失败时 `error` 非空、结果为空串），服务端只保留最近 200 条（`kept` 就是这个上限）。
+`args` 存的是除表达式与 `op` 之外的入参（`var` / `point` / `lower` / `upper` / `order` / `symbols`），前端点一条历史即可原样回填输入框，
+并把当时算出的结果或错误直接展示出来——**不重新计算**，因此失败记录也能复现当时的报错。
 
 `op` 取值（与 `server/app/core/compute.py` 的 `OPS` 一致）：
 `simplify`、`expand`、`factor`、`apart`、`trigsimp`、`diff`、`partial`、`integrate`、`limit`、
@@ -249,6 +267,39 @@ curl -X POST http://127.0.0.1:8000/api/compute/evaluate \
 | POST | `/api/problems/{problem_id}/review/grade` | 自评并推进 SM-2，body `{"quality":0..5}`（<3 视为遗忘） |
 
 冲刺期定义：设置了考试日期且 `0 <= days_left <= 30`。
+
+### 3.9 限时模考
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| POST | `/api/courses/{course_id}/mock-exams` | 组卷，body `{"title","count":10,"duration_min":60,"knowledge":"","material_id":null}`；只从「题干与参考答案都非空」的题里随机抽，候选不足则全取，一个都没有时 400 |
+| GET | `/api/courses/{course_id}/mock-exams` | 历史模考列表（成绩、状态、是否超时） |
+| POST | `/api/mock-exams/{exam_id}/start` | 开考（幂等）：首次调用记 `started_at` 并算出 `deadline_at = started_at + duration_min` |
+| GET | `/api/mock-exams/{exam_id}` | 考卷详情 `{"exam","items"}`，每次响应都回传服务端算的 `seconds_left` |
+| PUT | `/api/mock-exams/{exam_id}/answers/{problem_id}` | 自动暂存单题作答，body `{"answer_text"}`；已交卷则 409 |
+| POST | `/api/mock-exams/{exam_id}/submit` | 交卷并后台批改（逐题一次模型调用，`graded` 是进度）；已交卷 409 |
+| DELETE | `/api/mock-exams/{exam_id}` | 删除这场模考 |
+
+- 计时是**服务端权威**的：刷新页面不会重置倒计时，`seconds_left <= 0` 时前端到点自动交卷，交卷时超时会给 `late: true`。
+- 参考答案（`items[].answer`）在 `status != done` 之前**绝不下发**，避免边做边抄。
+- 题目不在本场卷内时暂存返回 404；未开考就交卷会按满分时长补一个起点，不会出现空 `deadline_at`。
+
+### 3.10 实验台图纸
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/labs/drawings?lab_id=` | 图纸列表（不含画布内容），最近改动的在前；`lab_id` 留空表示所有实验 |
+| POST | `/api/labs/drawings` | 保存新图纸，body `{"name","lab_id","build"}`，返回含 `build` 的详情 |
+| GET | `/api/labs/drawings/{drawing_id}` | 单张图纸详情（带 `build`） |
+| PUT | `/api/labs/drawings/{drawing_id}` | 整张覆盖保存：名字、归属实验与画布内容一起更新 |
+| DELETE | `/api/labs/drawings/{drawing_id}` | 只删图纸本身，返回 `{"status":"deleted","name"}`；不影响资料、题目与学习记录 |
+
+- `build` 就是画布状态 `{"comps":[...],"wires":[...]}`。服务端**只校验顶层结构**（两个键必须是数组、元素必须是对象，
+  序列化后 ≤ 200k 字符），不合规返回 422，元件与连线的语义由前端负责，服务端因此不会被搭建器的版本演进绑死；
+  载入时前端再做一次形状守卫，坏数据只会提示「读不出来」，不会崩画布。
+- 同名图纸在同一 `lab_id` 下会返回 409（不自动加后缀），改名撞名同理；名字最长 60 字符，去掉首尾空格后不能为空。
+- `lab_id` 截断到 40 字符，留空时落到 `__free`（自由搭建）。
+- 列表项给的是 `comp_count` / `wire_count`，用于在不传输画布内容的情况下展示「4 个元件 · 3 条连线」。
 
 ---
 

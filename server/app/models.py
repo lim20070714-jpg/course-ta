@@ -155,3 +155,35 @@ class ExamAnswer(SQLModel, table=True):
     verdict: str = "unanswered"  # correct | partial | wrong | unknown | unanswered
     feedback: str = ""
     updated_at: datetime = Field(default_factory=_now)
+
+
+class ComputeRun(SQLModel, table=True):
+    """计算台的一行历史：成功记结果，失败记错误信息（报错本身也是复习线索）。
+
+    只保留最近若干条，写入后裁剪旧行；表很小，不建索引。
+    """
+
+    id: int | None = Field(default=None, primary_key=True)
+    expr: str
+    op: str = "simplify"
+    args: str = "{}"  # 其余入参（var / point / lower / upper / order / symbols）JSON，供历史回填
+    result_latex: str = ""
+    result_plain: str = ""
+    approx: str = ""
+    error: str = ""
+    created_at: datetime = Field(default_factory=_now)
+
+
+class LabDrawing(SQLModel, table=True):
+    """实验台图纸：画布上的元件与连线按 JSON 存下来，换浏览器也能继续画。
+
+    `build` 是 {"comps": [...], "wires": [...]} 的 JSON 字符串，结构由前端负责；
+    服务端只做大小与顶层形状校验，改名/存版本都只动这一行。
+    """
+
+    id: int | None = Field(default=None, primary_key=True)
+    name: str = Field(index=True)
+    lab_id: str = "__free"  # 归属的实验（__free 表示自由画布）
+    build: str = '{"comps": [], "wires": []}'
+    created_at: datetime = Field(default_factory=_now)
+    updated_at: datetime = Field(default_factory=_now)
