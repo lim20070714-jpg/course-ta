@@ -2116,6 +2116,104 @@ button.citation:hover:not(:disabled) {
   margin: 2px 0;
 }
 
+/* ---------- 计算台：实时预览即控件 ---------- */
+.cmp-live {
+  border-style: solid;
+  border-color: var(--accent-border);
+  background: var(--accent-softer);
+}
+
+.live-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px;
+  min-height: 30px;
+  font-size: 16px;
+}
+
+.live-row .pv-expr {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+}
+
+/* RichText 会把公式包进 <p>，嵌进算式行里要去掉段落间距 */
+.pv-expr p {
+  margin: 0;
+  display: inline;
+}
+
+.pv-text {
+  color: var(--text-3);
+  font-size: 12.5px;
+  margin: 0 2px;
+}
+
+.pv-scripts {
+  display: inline-flex;
+  align-items: center;
+}
+
+.pv-sscript {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: center;
+  margin-left: 1px;
+  font-size: 0.72em;
+  line-height: 1.25;
+}
+
+.pv-frac {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  margin-right: 3px;
+}
+
+.pv-frac .pv-script-line:first-child {
+  padding: 0 3px;
+}
+
+.pv-den {
+  border-top: 1px solid var(--text-3);
+  padding: 1px 3px 0;
+}
+
+.pv-slot {
+  font: inherit;
+  font-size: 0.78em;
+  padding: 1px 3px;
+  text-align: center;
+  color: var(--accent-strong);
+  background: var(--surface);
+  border: 1px dashed var(--accent-border);
+  border-radius: 6px;
+  outline: none;
+  transition: border-color var(--dur-1) var(--ease-out), box-shadow var(--dur-1) var(--ease-out);
+}
+
+.pv-slot:hover {
+  border-color: var(--accent-ring);
+}
+
+.pv-slot:focus {
+  border-style: solid;
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
+}
+
+.pv-slot::placeholder {
+  color: var(--muted);
+  opacity: 0.75;
+}
+
+.cmp-live-blank {
+  color: var(--muted);
+  font-style: italic;
+  font-size: 13px;
+}
+
 .compute-controls {
   display: flex;
   align-items: flex-end;
@@ -2131,18 +2229,9 @@ button.citation:hover:not(:disabled) {
   color: var(--muted);
 }
 
-.compute-controls select,
-.compute-controls input {
+.compute-controls select {
   padding: 6px 8px;
   font-size: 13px;
-}
-
-.compute-controls input {
-  width: 90px;
-}
-
-.compute-controls .w60 {
-  width: 60px;
 }
 
 .compute-run {

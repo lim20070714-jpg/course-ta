@@ -10,6 +10,8 @@ import {
   updateFormula,
 } from '../api'
 import RichText from '../components/RichText'
+import LiveMath from '../components/LiveMath'
+import { clampOrder, liveFields, liveMath, type SlotField } from '../compute/liveMath'
 import {
   argSummary,
   dedupeRuns,
@@ -69,6 +71,21 @@ export default function Compute() {
   const mainRef = useRef<HTMLElement>(null)
 
   const needs = opNeeds(op)
+  const liveNodes = useMemo(() => liveMath(op), [op])
+  const hasSlots = useMemo(() => liveFields(liveNodes).length > 0, [liveNodes])
+  const slotValues: Record<SlotField, string> = useMemo(
+    () => ({ variable, point, lower, upper, order: String(order) }),
+    [variable, point, lower, upper, order],
+  )
+
+  /** 预览里的参数框直接写回同一份状态：改哪儿都只有一条路径。 */
+  function setSlot(field: SlotField, raw: string) {
+    if (field === 'order') setOrder(clampOrder(raw))
+    else if (field === 'variable') setVariable(raw)
+    else if (field === 'point') setPoint(raw)
+    else if (field === 'lower') setLower(raw)
+    else setUpper(raw)
+  }
 
   useEffect(() => {
     listFormulas()
@@ -386,7 +403,7 @@ export default function Compute() {
             <span className="compute-hint">
               {needs.matrix
                 ? '矩阵输入：[[1,2],[3,4]] 或 \\begin{pmatrix}1&2\\\\3&4\\end{pmatrix}，也可把公式库里的矩阵公式整行粘进来'
-                : '支持 LaTeX 或普通语法（如 2x、x^3、exp(-2t)）；定积分在下方填上下限，傅里叶变换按 ω 约定'}
+                : '支持 LaTeX 或普通语法（如 2x、x^3、exp(-2t)）；定积分的上下限、变量、展开点都在下面的实时预览里直接改，傅里叶变换按 ω 约定'}
             </span>
           </div>
           <textarea
@@ -420,10 +437,22 @@ export default function Compute() {
                 </button>
               ))}
           </div>
-          {expr.trim() && (
-            <div className="compute-preview cmp-preview">
-              <span className="preview-label">实时预览</span>
-              <RichText text={toPreviewTex(expr)} />
+          {(expr.trim() || hasSlots) && (
+            <div className="compute-preview cmp-preview cmp-live">
+              <span className="preview-label">实时预览 · 参数直接在式子里改</span>
+              <LiveMath
+                nodes={liveNodes}
+                values={slotValues}
+                expr={
+                  expr.trim() ? (
+                    <RichText text={toPreviewTex(expr)} />
+                  ) : (
+                    <span className="cmp-live-blank">表达式</span>
+                  )
+                }
+                onSlot={setSlot}
+                onRun={run}
+              />
             </div>
           )}
           <div className="compute-controls">
@@ -448,48 +477,6 @@ export default function Compute() {
                 ))}
               </select>
             </label>
-            {needs.variable && (
-              <label>
-                变量
-                <input
-                  className="w60"
-                  value={variable}
-                  onChange={(e) => setVariable(e.target.value)}
-                  placeholder="x"
-                />
-              </label>
-            )}
-            {needs.bounds && (
-              <>
-                <label>
-                  下限
-                  <input value={lower} onChange={(e) => setLower(e.target.value)} placeholder="0" />
-                </label>
-                <label>
-                  上限
-                  <input value={upper} onChange={(e) => setUpper(e.target.value)} placeholder="1" />
-                </label>
-              </>
-            )}
-            {needs.point && (
-              <label>
-                {op === 'limit' ? '趋近于' : op === 'residue' ? '奇点' : '展开点'}
-                <input value={point} onChange={(e) => setPoint(e.target.value)} placeholder="0" />
-              </label>
-            )}
-            {needs.order && (
-              <label>
-                阶数
-                <input
-                  className="w60"
-                  type="number"
-                  min={1}
-                  max={20}
-                  value={order}
-                  onChange={(e) => setOrder(Math.max(1, Number(e.target.value) || 1))}
-                />
-              </label>
-            )}
             <span className="cmp-run-wrap">
               <button
                 className={busy ? 'compute-run cmp-busy' : 'compute-run'}

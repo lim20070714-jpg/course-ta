@@ -16,14 +16,14 @@ LLM 只做支撑（抽取、批改、总结、图谱归纳），学生始终在�
 | --- | --- |
 | 主界面分区 | 8 个（⌘1..8 与命令面板直达） |
 | 后端 API operation | 57 个（覆盖 42 条路径），OpenAPI 自动生成 |
-| 自动化测试 | **702** 个：后端 315（pytest，全部离线）+ 前端 387（Vitest，18 个文件） |
+| 自动化测试 | **713** 个：后端 315（pytest，全部离线）+ 前端 398（Vitest，19 个文件） |
 | 静态检查 | ruff + tsc + oxlint 零告警；CI 2 个 job（后端 / 前端）全绿 |
-| 代码规模 | 约 34.2k 行：后端 `server/app` 6,432、`server/tests` 3,981、前端 `web/src` ts/tsx 17,644、`web/src/index.css` 6,135 |
+| 代码规模 | 约 34.6k 行：后端 `server/app` 6,432、`server/tests` 3,981、前端 `web/src` ts/tsx 18,003、`web/src/index.css` 6,224 |
 | 自托管 | `docker-compose` 一键；前端 nginx 静态托管 + 反向代理；默认 `http://localhost:8080` |
 | 密钥模式 | BYOK：用户填自己的 Key，服务端可完全不留密钥 |
 | 许可 | MIT |
 
-## 七个真正的技术难点
+## 八个真正的技术难点
 
 **1. 试卷 / 课件 PDF 的版面级还原（`server/app/core/ingest.py`、`glyph_tables.py`、`crops.py`）**
 课件里的公式多是 MathType/Wingdings 嵌入的匿名子集字体，ToUnicode 映射丢失，PyMuPDF 只能回退成
@@ -81,6 +81,16 @@ PATCH 若直接返回 ORM 对象，`page_count` 会退回表里的 0（列表口
 不重复消耗一次 sympy 计算。图纸保存只校验顶层结构（`comps` / `wires` 是数组、元素是对象、序列化 ≤ 200k 字符），
 画布语义留给前端，服务端不被编辑器版本绑死；载入时前端再做一次形状守卫，坏数据只会「读不出来」，不会崩画布。
 
+**8. 把参数控件长进公式里（`web/src/compute/liveMath.ts`、`components/LiveMath.tsx`，相关测试 11 个）**
+定积分的上下限、积分变量、展开点、导数阶数以往都是式子下面一排输入框，改参数时视线要在两处之间来回跳。
+这里改成「预览即控件」：`liveMath.ts` 用一组纯函数把每个操作描述成节点代数（`tex` / `expr` / `text` / `scripts` 角标 /
+`frac` 分数线 / `slot` 可编辑槽），`∫` 的上下限直接是 `scripts` 的 `sub`/`sup` 子节点，`d` 后面跟变量槽，
+泰勒展开渲染成「在 x = 0 处展到 6 阶」。渲染器递归下降，槽位在角标或分数线**内部**也照样能编辑（这是被自己的测试抓出来的
+真缺陷：第一版只在顶层节点找槽，limit 和 residue 的趋近值悄悄丢了）。真正值钱的是那条不变量测试：
+遍历 `OP_GROUPS` 里每一个操作（外加 `partial`、`series`），断言预览里出现的槽位集合**恰好等于** `opNeeds()` 推导出的
+后端入参集合——于是既不会出现「给了个改了没用的框」，也不会出现「改了却漏传给 sympy」。槽位写回只有一条路径
+（`setSlot`），参数状态没有第二份副本；阶数槽用 `clampOrder` 把非数字剥离并限幅 1..20，而不是再放一个 `type=number` 输入。
+
 ## 工程实践
 
 - **BYOK 用 contextvar 做按请求覆盖**（`server/app/config.py`）：请求头里的 Key / Base URL / Model 只在该请求的
@@ -88,7 +98,7 @@ PATCH 若直接返回 ORM 对象，`page_count` 会退回表里的 0（列表口
   永不回显密钥本身。中间件 `BYOKMiddleware` 是**原生 ASGI** 而非 `BaseHTTPMiddleware`——后者会缓冲响应，
   会破坏项目里大量使用的 SSE 流式输出。
 - **测试不依赖本机配置**：涉及密钥的用例用哨兵值 monkeypatch，315 个后端测试在任何没有 `.env` 的机器上
-  （包括 CI）都能离线通过；前端 387 个用例同理。
+  （包括 CI）都能离线通过；前端 398 个用例同理。
 - **CI 门禁**：后端 `uv sync → ruff check → pytest`，前端 `npm ci → oxlint → vitest → tsc -b && vite build`，两个 job。
 - **可移植性**：服务端与前端各有 Dockerfile，`docker-compose.yml` 用命名卷持久化 SQLite 与资料目录；
   文档默认面向本机 `localhost`，域名/反代只作为对外分享的进阶路径。
@@ -108,8 +118,8 @@ uv run ruff check .       # 零告警
 uv run python -c "from app.main import app; print(sum(1 for p in app.openapi()['paths'].values() for m in p if m in {'get','post','put','patch','delete'}))"   # 57
 
 cd ../web
-npm run lint              # 57 个文件，0 warning 0 error
-npm test                  # 387 passed
+npm run lint              # 60 个文件，0 warning 0 error
+npm test                  # 398 passed
 ```
 
 接口细节见 [API.md](API.md)，部署见 [DEPLOY.md](DEPLOY.md)，功能全景见 [../README.md](../README.md)。
