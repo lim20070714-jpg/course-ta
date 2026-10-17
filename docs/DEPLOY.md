@@ -375,9 +375,10 @@ uv run uvicorn app.main:app --port 8000
 - 验证升级结果：
 
 ```bash
-curl -s localhost:8000/api/health              # {"status":"ok"}
-curl -s localhost:8000/api/config | head -c 200 # version 与 server_key_configured
-docker compose ps                              # api healthy / web 8080
+curl -s localhost:8000/api/health               # {"status":"ok"}
+curl -s localhost:8000/api/config               # server_key_configured / byok_headers
+PYTHONIOENCODING=utf-8 python -c "import json,urllib.request as u;print(json.load(u.urlopen('http://localhost:8000/openapi.json'))['info']['version'])"
+docker compose ps                               # api healthy / web 8080
 ```
 
 ### 8.2 发布一个版本（维护者）
