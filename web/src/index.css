@@ -2197,10 +2197,14 @@ button.citation:hover:not(:disabled) {
 
 /* 未填：虚线，显示的是示例值；已填：实线，一眼区分「还没设过」和「就是这个数」。 */
 .pv-slot {
+  position: relative;
+  display: inline-block;
   font: inherit;
   padding: 0 2px;
   line-height: 1.15;
   vertical-align: baseline;
+  min-width: 1.6ch;
+  min-height: 1.15em;
   color: var(--accent-strong);
   background: none;
   border: none;
@@ -2208,6 +2212,13 @@ button.citation:hover:not(:disabled) {
   border-radius: 0 0 5px 5px;
   cursor: pointer;
   transition: background var(--dur-1) var(--ease-out), border-color var(--dur-1) var(--ease-out);
+}
+
+/* 单个数字（阶数的 1、变量的 x）本来只有十几个像素宽，用伪元素把命中区撑到 ~24px。 */
+.pv-slot::before {
+  content: '';
+  position: absolute;
+  inset: -5px -4px;
 }
 
 .pv-slot.filled {
@@ -2267,6 +2278,165 @@ button.citation:hover:not(:disabled) {
 .pv-slot-edit::placeholder {
   color: var(--muted);
   opacity: 0.8;
+}
+
+/* ---------- 计算台：预览里的矩阵网格（点元素就改元素，不需要重打整个矩阵） ---------- */
+
+.pv-matrix {
+  display: inline-flex;
+  align-items: stretch;
+  vertical-align: middle;
+  line-height: 1.3; /* .live-row 的 2 会把三行矩阵撑得很高 */
+  margin: 0 3px;
+  color: var(--text-2);
+}
+
+/* 括号用边框画：左括号只留左/上/下，右括号只留右/上/下；圆括号再加一侧圆角 */
+.pv-matrix::before,
+.pv-matrix::after {
+  content: '';
+  flex: 0 0 0.42em;
+  border: 1.4px solid var(--text-3);
+}
+
+.pv-matrix::before {
+  border-right: 0;
+  border-radius: 0.5em 0 0 0.5em;
+}
+
+.pv-matrix::after {
+  border-left: 0;
+  border-radius: 0 0.5em 0.5em 0;
+}
+
+.pv-style-bmatrix::before,
+.pv-style-bmatrix::after,
+.pv-style-bracket::before,
+.pv-style-bracket::after {
+  border-radius: 0;
+}
+
+.pv-style-vmatrix::before,
+.pv-style-vmatrix::after {
+  flex-basis: 0;
+  border-width: 0 0 0 1.4px;
+  border-radius: 0;
+}
+
+.pv-style-vmatrix::after {
+  border-width: 0 1.4px 0 0;
+}
+
+/* \begin{matrix} 本来就没有括号 */
+.pv-style-matrix::before,
+.pv-style-matrix::after {
+  display: none;
+}
+
+.pv-grid {
+  display: grid;
+  gap: 3px 10px;
+  justify-items: center;
+  align-items: center;
+  padding: 4px 7px;
+}
+
+.pv-matrix .pv-slot {
+  min-width: 2.6ch;
+  text-align: center;
+  border-bottom-width: 0;
+  border-radius: 6px;
+  background: var(--surface-3);
+  padding: 0 4px;
+}
+
+/* 格子挨得近，命中区不必像行内槽那样外扩，否则会盖到括号上 */
+.pv-matrix .pv-slot::before {
+  inset: -2px -2px;
+}
+
+.pv-matrix .pv-slot:hover {
+  background: var(--accent-soft);
+}
+
+.pv-matrix .pv-slot-edit {
+  background: var(--surface);
+}
+
+/* ---------- 计算台：可折叠的 LaTeX 写法提示 ---------- */
+
+.cmp-help {
+  border-top: 1px dashed var(--border);
+  padding-top: 9px;
+}
+
+.cmp-help summary {
+  cursor: pointer;
+  list-style: none;
+  font-size: 12.5px;
+  color: var(--muted);
+  user-select: none;
+}
+
+.cmp-help summary::-webkit-details-marker {
+  display: none;
+}
+
+.cmp-help summary::before {
+  content: '▸ ';
+  color: var(--accent);
+}
+
+.cmp-help[open] summary::before {
+  content: '▾ ';
+}
+
+.cmp-help summary:hover {
+  color: var(--text-3);
+}
+
+.cmp-help-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px 16px;
+  margin: 10px 0 2px;
+}
+
+.cmp-help-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.cmp-help-item dt,
+.cmp-help-item dd {
+  margin: 0;
+}
+
+.cmp-help-copy {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: var(--text);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  padding: 2px 6px;
+  cursor: pointer;
+  overflow-x: auto;
+}
+
+.cmp-help-copy:hover {
+  border-color: var(--accent-border);
+  background: var(--surface-3);
+}
+
+.cmp-help-item dd {
+  font-size: 11.5px;
+  color: var(--muted);
+  padding-left: 6px;
 }
 
 .compute-controls {
@@ -2519,6 +2689,34 @@ button.link.danger {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+  flex-shrink: 0;
+  /* 滚到历史区时按钮钉在可视区顶部，长列表滚动也不会把刷新 / 清空带走 */
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--surface);
+  padding-bottom: 4px;
+}
+
+/* 结果最多占一小截并且自己滚，历史列表也在自己那块里滚：
+   刚算完时卡片不会越长越高，把历史区的 刷新 / 清空 顶出视野。
+   窄屏（整页滚）同样要限高，否则「算完一次就得重新找按钮」还是会发生。 */
+.cmp-result-card {
+  flex-shrink: 0;
+  max-height: 38vh;
+  overflow-y: auto;
+}
+
+.cmp-history {
+  flex: 1 1 auto;
+  min-height: 150px;
+}
+
+.cmp-history-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: 46vh;
+  overflow-y: auto;
 }
 
 .cmp-history-tools {
@@ -2658,6 +2856,12 @@ button.link.danger {
     border-left: 0;
     border-top: 1px solid var(--border);
     overflow-y: visible;
+  }
+
+  /* 窄屏时历史卡不再吃满剩余高度（整页滚），但结果 / 历史仍然各自限高 */
+  .cmp-history {
+    flex: none;
+    min-height: 0;
   }
 }
 

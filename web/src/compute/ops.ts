@@ -143,3 +143,33 @@ export const MATRIX_TEMPLATES = [
 export function toPreviewTex(expr: string): string {
   return `$${expr}$`
 }
+
+/**
+ * 「作为输入」回填哪一种写法。结果有两种形式：`latex` 是数学源码，`plain` 是 sympy 的
+ * 文本形式（`x**5/120 - x**3/6`）。回填后要在预览里读得通，所以取 `latex`——
+ * 后端 parse_input 见到反斜杠就走 parse_latex，能原样再吃回去。
+ * 特征值那类带中文注记（`重数`）的没法回读，退回 plain 至少不骗人。
+ */
+export function asInputTex(result: { latex: string; plain: string }): string {
+  const tex = result.latex.replace(/\\displaystyle/g, '').trim()
+  if (!tex || /[\u4e00-\u9fa5]/.test(tex)) return result.plain
+  return tex
+}
+
+/** 可折叠的写法提示：每条都会真的送去 KaTeX 排版，所以示例本身必须是合法 LaTeX（有测试钉住）。 */
+export const TEX_HINTS: { tex: string; meaning: string }[] = [
+  { tex: '\\frac{a}{b}', meaning: '分数，分子分母都要用花括号' },
+  { tex: 'x^{n+1}', meaning: '上标；两个字符以上必须括起来' },
+  { tex: 'e^{-x^2}', meaning: '指数常这样写，花括号可以直接混用' },
+  { tex: '\\sqrt{x}\\,,\\ \\sqrt[3]{x}', meaning: '开方，第三个参数是根指数' },
+  { tex: '\\int_0^{\\infty} f\\,dx', meaning: '积分；上下限也能在预览的算式里点着改' },
+  { tex: '\\sum_{k=1}^{n} k', meaning: '求和，下标是起点与变量' },
+  { tex: '\\lim_{x \\to 0}', meaning: '极限的趋近写法' },
+  { tex: '\\partial_x f', meaning: '偏导（操作选「偏导数」更稳）' },
+  { tex: '\\pi\\,,\\ e\\,,\\ i', meaning: '圆周率 / 自然底数 / 虚数单位' },
+  { tex: '\\omega\\,,\\ \\alpha\\,,\\ \\theta', meaning: '希腊字母，输入 \\ 后也能选快捷符号' },
+  { tex: '\\infty\\,,\\ \\infty', meaning: '无穷；上下限里写 oo 也一样' },
+  { tex: '\\begin{pmatrix}a&b\\\\c&d\\end{pmatrix}', meaning: '矩阵：& 分隔列，\\\\ 分隔行，元素能在预览里点着改' },
+  { tex: '[[1,2],[3,4]]', meaning: '矩阵的另一种写法，纯文本更好手打' },
+  { tex: '2x\\,,\\ 3\\sin(x)', meaning: '普通语法：省略乘号、函数名后接括号' },
+]

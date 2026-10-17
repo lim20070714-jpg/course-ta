@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
-import { OP_GROUPS, opNeeds, toPreviewTex } from './ops'
+import katex from 'katex'
+import { OP_GROUPS, TEX_HINTS, asInputTex, opNeeds, toPreviewTex } from './ops'
 
 describe('opNeeds', () => {
   it('积分需要变量与上下限', () => {
@@ -83,5 +84,49 @@ describe('OP_GROUPS', () => {
 describe('toPreviewTex', () => {
   it('包装为行内公式', () => {
     expect(toPreviewTex('x^2')).toBe('$x^2$')
+  })
+})
+
+describe('asInputTex：结果导回输入框要读得通', () => {
+  it('取 latex 源码而不是 sympy 的 ** 写法', () => {
+    const latex = '\\frac{x^{5}}{120} - \\frac{x^{3}}{6}'
+    expect(asInputTex({ latex, plain: 'x**5/120 - x**3/6' })).toBe(latex)
+  })
+
+  it('\\displaystyle 会被去掉（排版由预览决定，回填的是能再算一遍的源码）', () => {
+    expect(asInputTex({ latex: '\\displaystyle\\int x\\,dx', plain: 'Integral(x, x)' })).toBe('\\int x\\,dx')
+  })
+
+  it('带中文注记的（特征值重数）回读不了，退回 plain 至少不骗人', () => {
+    expect(asInputTex({ latex: '\\lambda_{1} = 2\\;(重数 1)', plain: 'λ_1 = 2 (×1)' })).toBe('λ_1 = 2 (×1)')
+  })
+
+  it('latex 为空时不会回填一个空表达式', () => {
+    expect(asInputTex({ latex: '   ', plain: '0' })).toBe('0')
+  })
+
+  it('回填的 latex 后端能吃回去（含反斜杠即走 parse_latex）', () => {
+    for (const latex of ['\\frac{1}{s + a}', 'e^{- x^{2}}', '\\sqrt{2}']) {
+      expect(asInputTex({ latex, plain: 'whatever' })).toBe(latex)
+    }
+  })
+})
+
+describe('TEX_HINTS：可折叠提示框里每条都得是真能排版的 LaTeX', () => {
+  it('每条示例都能被 KaTeX 解析（throwOnError）', () => {
+    for (const h of TEX_HINTS) expect(() => katex.renderToString(h.tex, { throwOnError: true }), h.tex).not.toThrow()
+  })
+
+  it('每条都有说明，示例不重复', () => {
+    expect(TEX_HINTS.length).toBeGreaterThan(8)
+    for (const h of TEX_HINTS) expect(h.meaning.trim().length).toBeGreaterThan(0)
+    const texes = TEX_HINTS.map((h) => h.tex)
+    expect(new Set(texes).size).toBe(texes.length)
+  })
+
+  it('矩阵与纯文本两种写法都在提示里（用户最常用来自检）', () => {
+    const texes = TEX_HINTS.map((h) => h.tex)
+    expect(texes.some((t) => t.includes('\\begin{pmatrix}'))).toBe(true)
+    expect(texes.some((t) => t.startsWith('[['))).toBe(true)
   })
 })

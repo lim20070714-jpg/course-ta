@@ -1,10 +1,14 @@
 /**
  * 实时预览的参数槽位：把「操作 + 参数」排成一行可直接编辑的算式。
  * 改上下限、变量、展开点、阶数都发生在预览本身，而不是下面另一排输入框。
+ * 线性代数的矩阵也在这里改：预览把 `[[1,2],[3,4]]` / `\begin{pmatrix}…` 解析成格子，
+ * 点某个元素就只改那一个元素，写回仍然是合法矩阵语法。
  *
  * 槽位集合必须与 ops.ts 的 opNeeds 一致：预览里出现的槽就是后端真正会收的入参，
  * 少一个会丢参数，多一个会给出一个改了没用的框。
  */
+
+import { opNeeds } from './ops'
 
 export type SlotField = 'variable' | 'point' | 'lower' | 'upper' | 'order'
 
@@ -44,7 +48,12 @@ export interface FracNode {
   den: LiveNode[]
 }
 
-export type LiveNode = SlotNode | TexNode | TextNode | ExprNode | ScriptNode | FracNode
+/** 矩阵：内容由表达式本身解析而来（parseMatrix），编辑写回表达式而不是参数。 */
+export interface MatrixNode {
+  k: 'matrix'
+}
+
+export type LiveNode = SlotNode | TexNode | TextNode | ExprNode | ScriptNode | FracNode | MatrixNode
 
 const LABELS: Record<SlotField, string> = {
   variable: '变量',
@@ -93,6 +102,7 @@ const slot = (field: SlotField, label?: string): SlotNode => ({
 const tex = (value: string): TexNode => ({ k: 'tex', tex: value })
 const text = (value: string): TextNode => ({ k: 'text', t: value })
 const EXPR: ExprNode = { k: 'expr' }
+const MATRIX: MatrixNode = { k: 'matrix' }
 /** 只有上标的角标组（用于 d^{n} 这种纯上标）。 */
 const supOf = (...nodes: LiveNode[]): ScriptNode => ({ k: 'scripts', base: [], sup: nodes })
 
@@ -177,7 +187,8 @@ export function liveMath(op: string): LiveNode[] {
     case 'inverse_laplace':
       return transform('L', true, true)
     default:
-      return [EXPR] // 化简 / 展开 / 因式分解 / 矩阵 / 复数：只有表达式本身
+      // 线性代数：矩阵元素本身就是可改的；化简 / 展开 / 复数：只有表达式本身
+      return opNeeds(op).matrix ? [MATRIX] : [EXPR]
   }
 }
 
@@ -230,10 +241,143 @@ export function clampOrder(raw: string): number {
  */
 export function slotTex(field: SlotField, raw: string): string {
   const value = raw.trim()
-  if (!value) return HINT_TEX[field]
-  const infinity = value.match(/^([+-]?)oo$/i)
+  return value ? valueTex(value) : HINT_TEX[field]
+}
+
+/** 矩阵单元格：填什么就是什么，空着就真的是空着。 */
+export const cellTex = valueTex
+
+/** 用户写法到 KaTeX 源码的最小转换：`oo` 认无穷，中文按文本排版而不是让公式报红。 */
+function valueTex(value: string): string {
+  const v = value.trim()
+  if (!v) return ''
+  const infinity = v.match(/^([+-]?)oo$/i)
   if (infinity) return `${infinity[1] || ''}\\infty`
-  // 中文之类按文本排版；花括号要摘掉，否则 \text{} 会提前闭合（后端仍收到原始文本）
-  if (/[^\x20-\x7f]/.test(value)) return `\\text{${value.replaceAll(/[{}]/g, '')}}`
-  return value
+  // 花括号要摘掉，否则 \text{} 会提前闭合（后端仍收到原始文本）
+  if (/[^\x20-\x7f]/.test(v)) return `\\text{${v.replaceAll(/[{}]/g, '')}}`
+  return v
+}
+
+export type MatrixStyle = 'bracket' | 'pmatrix' | 'bmatrix' | 'vmatrix' | 'matrix'
+
+export interface ParsedMatrix {
+  style: MatrixStyle
+  /** 矩阵外面的 `\det` 之类包装，写回时原样带回，免得改一个元素把式子改没了。 */
+  prefix: string
+  rows: string[][]
+}
+
+const ENV_STYLE: Record<string, MatrixStyle> = {
+  pmatrix: 'pmatrix',
+  bmatrix: 'bmatrix',
+  vmatrix: 'vmatrix',
+  matrix: 'matrix',
+  array: 'matrix',
+}
+
+const STYLE_ENV: Record<MatrixStyle, string> = {
+  pmatrix: 'pmatrix',
+  bmatrix: 'bmatrix',
+  vmatrix: 'vmatrix',
+  matrix: 'matrix',
+  bracket: 'pmatrix',
+}
+
+/** `\left[ … \right]` 这类外层装饰只用来决定括号形状。 */
+const WRAP_STYLE: Record<string, MatrixStyle> = { '[': 'bmatrix', '(': 'pmatrix', '|': 'vmatrix' }
+
+const MAX_SIZE = 8
+
+/** 按括号深度切分：`\frac{1}{2}` 里的逗号 / `&` 不会被当成单元格分隔。 */
+function splitTop(text: string, sep: string): string[] {
+  const parts: string[] = []
+  let depth = 0
+  let start = 0
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i]
+    if (ch === '{' || ch === '(' || ch === '[') depth += 1
+    else if (ch === '}' || ch === ')' || ch === ']') depth -= 1
+    else if (depth === 0 && text.startsWith(sep, i)) {
+      parts.push(text.slice(start, i).trim())
+      i += sep.length - 1
+      start = i + 1
+    }
+  }
+  parts.push(text.slice(start).trim())
+  return parts
+}
+
+function shapeOk(rows: string[][]): boolean {
+  if (!rows.length || rows.length > MAX_SIZE) return false
+  const cols = rows[0].length
+  if (!cols || cols > MAX_SIZE) return false
+  return rows.every((r) => r.length === cols && r.every((c) => c.length > 0))
+}
+
+/**
+ * 认这三种写法（与后端 `_parse_matrix` 支持的口子一致）：
+ * `[[1,2],[3,4]]`、`\begin{pmatrix}…\end{pmatrix}`（含 bmatrix / vmatrix / matrix / array）、
+ * 以及它们外面的 `\det` 前缀与 `=ad-bc` 尾巴（后端也只取等号左边）。
+ * 认不出来的（比如 `\det(A-\lambda I)`、矩阵相加）返回 null，预览退回原始表达式渲染。
+ */
+export function parseMatrix(raw: string): ParsedMatrix | null {
+  let text = raw.trim().replace(/^\$+|\$+$/g, '')
+  if (!text) return null
+  const eq = text.indexOf('=')
+  if (eq >= 0) text = text.slice(0, eq).trim()
+
+  let prefix = ''
+  const wrapped = text.match(/^(\\(?:operatorname\s*\{det\}|mathrm\s*\{det\}|det)|det)\s*/i)
+  if (wrapped) {
+    prefix = wrapped[1]
+    text = text.slice(wrapped[0].length).trim()
+  }
+
+  // 外层的 \left[ … \right] 只是装饰，取它决定用哪种括号
+  let wrapStyle: MatrixStyle | null = null
+  const outer = text.match(/^\\left\s*(\[|\(|\|)([\s\S]*?)\\right\s*(?:\]|\)|\|)$/)
+  if (outer) {
+    wrapStyle = WRAP_STYLE[outer[1]] ?? null
+    text = outer[2].trim()
+  }
+
+  const env = text.match(/^\\begin\{([a-zA-Z*]+)\}([\s\S]*?)\\end\{\1\}$/)
+  if (env) {
+    const style = wrapStyle ?? ENV_STYLE[env[1]]
+    if (!style) return null
+    let body = env[2]
+    if (env[1] === 'array') body = body.replace(/^\s*\{[^}]*\}/, '') // array 的列格式说明不是内容
+    const rows = body
+      .split('\\\\')
+      .filter((r) => r.trim())
+      .map((r) => splitTop(r, '&'))
+    return shapeOk(rows) ? { style, prefix, rows } : null
+  }
+
+  if (text.startsWith('[') && text.endsWith(']')) {
+    const rowTexts = splitTop(text.slice(1, -1), ',')
+    if (!rowTexts.every((r) => r.startsWith('[') && r.endsWith(']'))) return null
+    const rows = rowTexts.map((r) => splitTop(r.slice(1, -1), ','))
+    return shapeOk(rows) ? { style: 'bracket', prefix, rows } : null
+  }
+  return null
+}
+
+/** 写回表达式：保持原来的记法（`[[...]]` 还是 `[[...]]`，pmatrix 还是 pmatrix）。 */
+export function matrixSource(m: ParsedMatrix): string {
+  const body =
+    m.style === 'bracket'
+      ? `[${m.rows.map((r) => `[${r.join(', ')}]`).join(', ')}]`
+      : `\\begin{${STYLE_ENV[m.style]}}${m.rows.map((r) => r.join('&')).join('\\\\')}\\end{${STYLE_ENV[m.style]}}`
+  return m.prefix ? `${m.prefix}${m.style === 'bracket' ? ' ' : ''}${body}` : body
+}
+
+/**
+ * 改一个单元格 = 重写整个表达式（其余部分原样保留）。
+ * 矩阵里清空一格没有「无」这个取值，按 0 处理——预览显示什么就发什么。
+ */
+export function setMatrixCell(m: ParsedMatrix, row: number, col: number, value: string): string {
+  const next = value.trim() || '0'
+  const rows = m.rows.map((r, i) => (i === row ? r.map((c, j) => (j === col ? next : c)) : [...r]))
+  return matrixSource({ ...m, rows })
 }

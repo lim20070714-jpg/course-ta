@@ -16,9 +16,9 @@ LLM 只做支撑（抽取、批改、总结、图谱归纳），学生始终在�
 | --- | --- |
 | 主界面分区 | 8 个（⌘1..8 与命令面板直达） |
 | 后端 API operation | 57 个（覆盖 42 条路径），OpenAPI 自动生成 |
-| 自动化测试 | **718** 个：后端 315（pytest，全部离线）+ 前端 403（Vitest，19 个文件） |
+| 自动化测试 | **740** 个：后端 315（pytest，全部离线）+ 前端 425（Vitest，19 个文件） |
 | 静态检查 | ruff + tsc + oxlint 零告警；CI 2 个 job（后端 / 前端）全绿 |
-| 代码规模 | 约 34.9k 行：后端 `server/app` 6,432、`server/tests` 3,981、前端 `web/src` ts/tsx 18,213、`web/src/index.css` 6,279 |
+| 代码规模 | 约 35.6k 行：后端 `server/app` 6,432、`server/tests` 3,981、前端 `web/src` ts/tsx 18,699、`web/src/index.css` 6,483 |
 | 自托管 | `docker-compose` 一键；前端 nginx 静态托管 + 反向代理；默认 `http://localhost:8080` |
 | 密钥模式 | BYOK：用户填自己的 Key，服务端可完全不留密钥 |
 | 许可 | MIT |
@@ -81,7 +81,7 @@ PATCH 若直接返回 ORM 对象，`page_count` 会退回表里的 0（列表口
 不重复消耗一次 sympy 计算。图纸保存只校验顶层结构（`comps` / `wires` 是数组、元素是对象、序列化 ≤ 200k 字符），
 画布语义留给前端，服务端不被编辑器版本绑死；载入时前端再做一次形状守卫，坏数据只会「读不出来」，不会崩画布。
 
-**8. 把参数控件长进公式里（`web/src/compute/liveMath.ts`、`components/LiveMath.tsx`，相关测试 16 个）**
+**8. 把参数控件长进公式里（`web/src/compute/liveMath.ts`、`components/LiveMath.tsx`，相关测试 30 个）**
 定积分的上下限、积分变量、展开点、导数阶数以往都是式子下面一排输入框，改参数时视线要在两处之间来回跳。
 这里改成「预览即控件」：`liveMath.ts` 用一组纯函数把每个操作描述成节点代数（`tex` / `expr` / `text` / `scripts` 角标 /
 `frac` 分数线 / `slot` 可编辑槽），`∫` 的上下限直接是 `scripts` 的 `sub`/`sup` 子节点，导数写成 `dⁿ/dxᵏ`（分子分母各带
@@ -99,6 +99,17 @@ PATCH 若直接返回 ORM 对象，`page_count` 会退回表里的 0（列表口
 `opNeeds()` 推导出的后端入参集合——既不会「给了个改了没用的框」，也不会「改了却漏传给 sympy」。
 槽位写回只有一条路径（`setSlot`），参数状态没有第二份副本；阶数槽用 `clampOrder` 剥离非数字并限幅 1..20。
 
+第三轮暴露的是**同一份状态被渲染两次**的问题：`\frac{d^n}{dx^n}` 的阶数槽在分子分母各出现一次，两处都渲染成输入框，
+于是「输入 A 看不到、输入 B 又被 A 覆盖」，用户直接反馈「微分的阶数改不了」；矩阵与行列式的元素（a、b、c、d）压根没有编辑入口，
+只能整行重打。改法是给每个槽位一个**按位置生成的实例 id**（`n.0.u.0` 这种路径），编辑态记的是 id 而不是字段名——
+两处仍共享同一个值（改哪儿都写回同一份 `order`），但同一时刻只有一个输入框；矩阵则新增 `matrix` 节点：
+`parseMatrix` 认后端 `_parse_matrix` 真正支持的同一套写法（`[[1,2],[3,4]]`、`pmatrix/bmatrix/vmatrix/matrix/array`、
+外层 `\left…\right`、`\det` 前缀、`=ad-bc` 尾巴），解析成网格后点哪个格子就只重写那个格子（`setMatrixCell` 生成**仍是合法语法**
+的整式），认不出来就退回原始表达式渲染而不是画一个假矩阵；单元格清空按 `0` 处理，因为矩阵里没有「无」这个取值，
+预览显示什么就发什么。同轮还钉了两条可读性规则：「↗ 作为输入」回填 `latex` 源码而非 sympy 的 `x**5/120` 文本形式
+（含中文注记的特征值结果才退回 plain），以及结果卡与历史列表各自限高内部滚动——算完一次不再把「刷新 / 清空」顶出视野。
+写法提示框里的 14 条示例全部走同一套 KaTeX 校验（`throwOnError`），保证给用户看的写法自己就先能排版。
+
 ## 工程实践
 
 - **BYOK 用 contextvar 做按请求覆盖**（`server/app/config.py`）：请求头里的 Key / Base URL / Model 只在该请求的
@@ -106,7 +117,7 @@ PATCH 若直接返回 ORM 对象，`page_count` 会退回表里的 0（列表口
   永不回显密钥本身。中间件 `BYOKMiddleware` 是**原生 ASGI** 而非 `BaseHTTPMiddleware`——后者会缓冲响应，
   会破坏项目里大量使用的 SSE 流式输出。
 - **测试不依赖本机配置**：涉及密钥的用例用哨兵值 monkeypatch，315 个后端测试在任何没有 `.env` 的机器上
-  （包括 CI）都能离线通过；前端 403 个用例同理。
+  （包括 CI）都能离线通过；前端 425 个用例同理。
 - **CI 门禁**：后端 `uv sync → ruff check → pytest`，前端 `npm ci → oxlint → vitest → tsc -b && vite build`，两个 job。
 - **可移植性**：服务端与前端各有 Dockerfile，`docker-compose.yml` 用命名卷持久化 SQLite 与资料目录；
   文档默认面向本机 `localhost`，域名/反代只作为对外分享的进阶路径。
@@ -127,7 +138,7 @@ uv run python -c "from app.main import app; print(sum(1 for p in app.openapi()['
 
 cd ../web
 npm run lint              # 60 个文件，0 warning 0 error
-npm test                  # 403 passed
+npm test                  # 425 passed
 ```
 
 接口细节见 [API.md](API.md)，部署见 [DEPLOY.md](DEPLOY.md)，功能全景见 [../README.md](../README.md)。

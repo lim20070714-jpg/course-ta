@@ -10,7 +10,7 @@ import {
   updateFormula,
 } from '../api'
 import RichText from '../components/RichText'
-import LiveMath from '../components/LiveMath'
+import LiveMath, { InlineMath } from '../components/LiveMath'
 import { clampOrder, liveFields, liveMath, liveNotes, type SlotField } from '../compute/liveMath'
 import {
   argSummary,
@@ -26,6 +26,8 @@ import {
   OP_GROUPS,
   QUICK_SYMBOLS,
   SYMBOL_KINDS,
+  TEX_HINTS,
+  asInputTex,
   opNeeds,
   toPreviewTex,
   type SymbolDef,
@@ -403,8 +405,8 @@ export default function Compute() {
           <div className="compute-input-head">
             <span className="compute-hint">
               {needs.matrix
-                ? '矩阵输入：[[1,2],[3,4]] 或 \\begin{pmatrix}1&2\\\\3&4\\end{pmatrix}，也可把公式库里的矩阵公式整行粘进来'
-                : '支持 LaTeX 或普通语法（2x、x^3、exp(-2t)）；上下限 / 变量 / 展开点 / 阶数不用另找输入框，在下面那条算式里点着改就行，傅里叶变换按 ω 约定'}
+                ? '矩阵输入：[[1,2],[3,4]] 或 \\begin{pmatrix}1&2\\\\3&4\\end{pmatrix}，也可把公式库里的矩阵公式整行粘进来；下面的预览里点哪个元素就能改哪个'
+                : '支持 LaTeX 或普通语法（2x、x^3、exp(-2t)）；上下限 / 变量 / 展开点 / 阶数不用另找输入框，在下面那条算式里点着改就行，傅里叶变换按 ω 约定。不会写就展开下面的「LaTeX 写法提示」'}
             </span>
           </div>
           <textarea
@@ -458,13 +460,16 @@ export default function Compute() {
           </div>
           {(expr.trim() || hasSlots) && (
             <div className="compute-preview cmp-preview cmp-live">
-              <span className="preview-label">要算的式子 · 点带下划线的值就能改参数</span>
+              <span className="preview-label">
+                要算的{needs.matrix ? '矩阵 · 点哪个格子就改哪个元素' : '式子 · 点带下划线的值就能改参数'}
+              </span>
               <LiveMath
                 nodes={liveNodes}
                 values={slotValues}
                 exprTex={expr}
                 notes={liveNotes(liveNodes, slotValues)}
                 onSlot={setSlot}
+                onExpr={setExpr}
                 onRun={run}
               />
             </div>
@@ -492,6 +497,21 @@ export default function Compute() {
               </button>
             )}
           </div>
+          <details className="cmp-help">
+            <summary>LaTeX 写法提示（{TEX_HINTS.length} 条）</summary>
+            <dl className="cmp-help-list">
+              {TEX_HINTS.map((h) => (
+                <div key={h.tex} className="cmp-help-item">
+                  <dt>
+                    <button className="cmp-help-copy" onClick={() => insert(h.tex)} title={`插入 ${h.tex}`}>
+                      <InlineMath tex={h.tex} />
+                    </button>
+                  </dt>
+                  <dd>{h.meaning}</dd>
+                </div>
+              ))}
+            </dl>
+          </details>
         </div>
 
         <div className="compute-card cmp-result-card">
@@ -540,8 +560,8 @@ export default function Compute() {
                   </button>
                   <button
                     className="mini"
-                    onClick={() => setExpr(result.plain)}
-                    title="把结果放回输入框，便于继续化简 / 求导 / 变换"
+                    onClick={() => setExpr(asInputTex(result))}
+                    title="把结果放回输入框继续算（回填的是 LaTeX 源码，预览与后端读的是同一份）"
                   >
                     ↗ 作为输入
                   </button>
@@ -565,55 +585,57 @@ export default function Compute() {
               )}
             </span>
           </div>
-          {history.length === 0 ? (
-            <p className="compute-empty">
-              还没有计算记录。这里的运算都会留下来（包括没算出来的），换浏览器也能接着看。
-            </p>
-          ) : (
-            <>
-              {historyTotal > history.length && (
-                <p className="cmp-history-more">
-                  共 {historyTotal} 条，这里只显示最近 {history.length} 条。
-                </p>
-              )}
-              {historyDays.map((day) => (
-                <div key={day.key} className="cmp-hist-day">
-                  <div className="cmp-hist-day-head">
-                    {day.label}
-                    <span className="cmp-hist-day-count">{day.items.length} 次</span>
+          <div className="cmp-history-body">
+            {history.length === 0 ? (
+              <p className="compute-empty">
+                还没有计算记录。这里的运算都会留下来（包括没算出来的），换浏览器也能接着看。
+              </p>
+            ) : (
+              <>
+                {historyTotal > history.length && (
+                  <p className="cmp-history-more">
+                    共 {historyTotal} 条，这里只显示最近 {history.length} 条。
+                  </p>
+                )}
+                {historyDays.map((day) => (
+                  <div key={day.key} className="cmp-hist-day">
+                    <div className="cmp-hist-day-head">
+                      {day.label}
+                      <span className="cmp-hist-day-count">{day.items.length} 次</span>
+                    </div>
+                    <ul className="cmp-hist-list">
+                      {day.items.map((r) => {
+                        const outcome = runOutcome(r)
+                        const args = argSummary(r)
+                        return (
+                          <li key={r.id}>
+                            <button
+                              className={usedRun?.id === r.id ? 'cmp-hist-item active' : 'cmp-hist-item'}
+                              onClick={() => restore(r)}
+                              title="放回输入框，并显示当时记下的结果"
+                            >
+                              <span className="cmp-hist-time">{localTimeLabel(r.created_at)}</span>
+                              <span className="cmp-hist-main">
+                                <span className="cmp-hist-expr mono">{r.expr}</span>
+                                <span className="cmp-hist-meta">
+                                  {opLabel(r.op)}
+                                  {args && ` · ${args}`}
+                                </span>
+                                <span className={outcome.failed ? 'cmp-hist-out fail' : 'cmp-hist-out'}>
+                                  {outcome.failed && <span aria-hidden="true">⚠ </span>}
+                                  {outcome.text}
+                                </span>
+                              </span>
+                            </button>
+                          </li>
+                        )
+                      })}
+                    </ul>
                   </div>
-                  <ul className="cmp-hist-list">
-                    {day.items.map((r) => {
-                      const outcome = runOutcome(r)
-                      const args = argSummary(r)
-                      return (
-                        <li key={r.id}>
-                          <button
-                            className={usedRun?.id === r.id ? 'cmp-hist-item active' : 'cmp-hist-item'}
-                            onClick={() => restore(r)}
-                            title="放回输入框，并显示当时记下的结果"
-                          >
-                            <span className="cmp-hist-time">{localTimeLabel(r.created_at)}</span>
-                            <span className="cmp-hist-main">
-                              <span className="cmp-hist-expr mono">{r.expr}</span>
-                              <span className="cmp-hist-meta">
-                                {opLabel(r.op)}
-                                {args && ` · ${args}`}
-                              </span>
-                              <span className={outcome.failed ? 'cmp-hist-out fail' : 'cmp-hist-out'}>
-                                {outcome.failed && <span aria-hidden="true">⚠ </span>}
-                                {outcome.text}
-                              </span>
-                            </span>
-                          </button>
-                        </li>
-                      )
-                    })}
-                  </ul>
-                </div>
-              ))}
-            </>
-          )}
+                ))}
+              </>
+            )}
+          </div>
         </div>
       </main>
 

@@ -3,7 +3,20 @@ import { describe, expect, it } from 'vitest'
 import { OP_GROUPS, opNeeds } from './ops'
 import katex from 'katex'
 
-import { clampOrder, liveFields, liveMath, liveNotes, liveSlots, slotTex, type LiveNode } from './liveMath'
+import {
+  cellTex,
+  clampOrder,
+  liveFields,
+  liveMath,
+  liveNotes,
+  liveSlots,
+  matrixSource,
+  parseMatrix,
+  setMatrixCell,
+  slotTex,
+  type LiveNode,
+  type ParsedMatrix,
+} from './liveMath'
 
 /** 界面上能选到的操作，加上只从历史里回来的两个 id（partial / series）。 */
 const ALL_OPS = [...OP_GROUPS.flatMap((g) => g.ops.map((o) => o.id)), 'partial', 'series']
@@ -26,10 +39,14 @@ describe('liveMath 的槽位与 opNeeds 对齐', () => {
     for (const op of ALL_OPS) expect(actualFields(op), op).toEqual(expectedFields(op))
   })
 
-  it('化简 / 矩阵 / 复数类只有表达式本体', () => {
-    for (const op of ['simplify', 'expand', 'factor', 'trigsimp', 'det', 'eigen', 'conjugate', 'abs']) {
+  it('化简 / 复数类只有表达式本体，线性代数类给的是可点的矩阵', () => {
+    for (const op of ['simplify', 'expand', 'factor', 'trigsimp', 'conjugate', 'abs']) {
       expect(liveFields(liveMath(op))).toEqual([])
       expect(liveMath(op)).toEqual([{ k: 'expr' }])
+    }
+    for (const op of ['det', 'eigen', 'inv', 'rank', 'rref', 'transpose']) {
+      expect(liveFields(liveMath(op))).toEqual([])
+      expect(liveMath(op)).toEqual([{ k: 'matrix' }])
     }
   })
 
@@ -171,5 +188,108 @@ describe('模板里的每一段都能被 KaTeX 解析', () => {
         expect(() => katex.renderToString(tex, { throwOnError: true }), `${op}: ${tex}`).not.toThrow()
       }
     }
+  })
+})
+
+describe('parseMatrix：预览里的矩阵认法与后端一致', () => {
+  it('认纯文本写法并保留行列', () => {
+    expect(parseMatrix('[[1,2],[3,4]]')).toEqual({ style: 'bracket', prefix: '', rows: [['1', '2'], ['3', '4']] })
+    expect(parseMatrix('  [[1, -2], [3, x]] ')?.rows).toEqual([['1', '-2'], ['3', 'x']])
+  })
+
+  it('认 pmatrix / bmatrix / vmatrix，括号形状按原样保留', () => {
+    expect(parseMatrix('\\begin{pmatrix}a&b\\\\c&d\\end{pmatrix}')?.style).toBe('pmatrix')
+    expect(parseMatrix('\\begin{bmatrix}a&b\\\\c&d\\end{bmatrix}')?.style).toBe('bmatrix')
+    expect(parseMatrix('\\begin{vmatrix}a&b\\\\c&d\\end{vmatrix}')?.style).toBe('vmatrix')
+    expect(parseMatrix('\\begin{matrix}a&b\\end{matrix}')?.rows).toEqual([['a', 'b']])
+  })
+
+  it('array 的列格式说明不是内容', () => {
+    const m = parseMatrix('\\begin{array}{cc}1&2\\\\3&4\\end{array}')
+    expect(m).not.toBeNull()
+    expect(m?.rows).toEqual([['1', '2'], ['3', '4']])
+  })
+
+  it('$ 包裹、\\det 前缀与 =ad-bc 尾巴都能剥掉并原样带回', () => {
+    const m = parseMatrix('$\\det\\begin{pmatrix}a&b\\\\c&d\\end{pmatrix}=ad-bc$')
+    expect(m?.prefix).toBe('\\det')
+    expect(m?.rows).toEqual([['a', 'b'], ['c', 'd']])
+    expect(matrixSource(m as ParsedMatrix)).toBe('\\det\\begin{pmatrix}a&b\\\\c&d\\end{pmatrix}')
+  })
+
+  it('认不出的形式返回 null，预览退回原始表达式而不是画个假矩阵', () => {
+    const rejects = [
+      '',
+      '   ',
+      'A + B',
+      'x',
+      '\\det(A-\\lambda I)',
+      '\\begin{pmatrix}1&2\\end{pmatrix}+1',
+      '[[1,2],[3]]',
+      '[[1,2],[]]',
+    ]
+    for (const raw of rejects) expect(parseMatrix(raw), raw).toBeNull()
+  })
+
+  it('超过 8 阶不当矩阵处理（点着改不现实，也不该在预览里铺开）', () => {
+    const big = `[${Array.from({ length: 9 }, () => '[1,1,1]').join(',')}]`
+    expect(parseMatrix(big)).toBeNull()
+  })
+
+  it('\\frac 里的逗号不会被当成单元格边界', () => {
+    expect(parseMatrix('[[\\frac{1,2}{3},4],[5,6]]')?.rows).toEqual([['\\frac{1,2}{3}', '4'], ['5', '6']])
+  })
+})
+
+describe('矩阵元素写回：改一格只动那一格', () => {
+  it('写回后仍是合法语法且能被再次解析', () => {
+    const m = parseMatrix('\\begin{pmatrix}a&b\\\\c&d\\end{pmatrix}') as ParsedMatrix
+    const next = setMatrixCell(m, 0, 1, 't')
+    expect(next).toBe('\\begin{pmatrix}a&t\\\\c&d\\end{pmatrix}')
+    expect(parseMatrix(next)?.rows).toEqual([['a', 't'], ['c', 'd']])
+  })
+
+  it('清空一格按 0 处理：矩阵里「空着」没有对应取值，不能发一个算不出来的式子', () => {
+    const m = parseMatrix('[[1,2],[3,4]]') as ParsedMatrix
+    expect(setMatrixCell(m, 1, 0, '  ')).toBe('[[1, 2], [0, 4]]')
+  })
+
+  it('带前缀的写法改完还带着前缀', () => {
+    const m = parseMatrix('\\det [[1,2],[3,4]]') as ParsedMatrix
+    expect(setMatrixCell(m, 1, 1, '9')).toBe('\\det [[1, 2], [3, 9]]')
+  })
+
+  it('round-trip：解析 → 写回 → 再解析，行列与记法都一致', () => {
+    const raws = [
+      '[[1,2],[3,4]]',
+      '\\begin{bmatrix}1&2&3\\\\4&5&6\\end{bmatrix}',
+      '\\det\\begin{pmatrix}a&b\\\\c&d\\end{pmatrix}',
+      '\\begin{vmatrix}x&0\\\\0&y\\end{vmatrix}',
+    ]
+    for (const raw of raws) {
+      const once = parseMatrix(raw) as ParsedMatrix
+      const twice = parseMatrix(matrixSource(once)) as ParsedMatrix
+      expect(twice.rows, raw).toEqual(once.rows)
+      expect(twice.style, raw).toBe(once.style)
+      expect(twice.prefix, raw).toBe(once.prefix)
+    }
+  })
+
+  it('cellTex 与槽位同规矩：保留 LaTeX、中文按文本排版', () => {
+    expect(cellTex('\\alpha')).toBe('\\alpha')
+    expect(cellTex('电容C')).toBe('\\text{电容C}')
+    expect(cellTex('')).toBe('')
+  })
+})
+
+describe('parseMatrix：\\left … \\right 只决定括号形状', () => {
+  it('外层方括号按 bmatrix 画，圆括号按 pmatrix 画', () => {
+    expect(parseMatrix('\\left[\\begin{matrix}1&2\\\\3&4\\end{matrix}\\right]')?.style).toBe('bmatrix')
+    expect(parseMatrix('\\left(\\begin{array}{cc}1&2\\end{array}\\right)')?.style).toBe('pmatrix')
+    expect(parseMatrix('\\left|\\begin{matrix}1&2\\end{matrix}\\right|')?.style).toBe('vmatrix')
+  })
+
+  it('括号不配对时不认（宁可不画网格，也不画一个假矩阵）', () => {
+    expect(parseMatrix('\\left[\\begin{matrix}1&2\\end{matrix}')).toBeNull()
   })
 })
