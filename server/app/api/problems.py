@@ -24,6 +24,7 @@ from app.schemas import (
     ProblemListItem,
     ProblemListRead,
     ProblemSourceRead,
+    SearchHit,
     TagCount,
     WrongItem,
 )
@@ -282,6 +283,10 @@ def problem_detail(problem_id: int) -> ProblemDetailRead:
             stem=problem.stem,
             answer=problem.answer,
             knowledge=core.parse_tags(problem.knowledge),
+            solution=problem.solution,
+            solution_citations=[
+                SearchHit(**c) for c in core.parse_citations(problem.solution_citations)
+            ],
             attempts=[
                 AttemptRead(
                     id=a.id or 0,
@@ -365,7 +370,7 @@ async def grade_problem(problem_id: int, payload: GradeRequest) -> EventSourceRe
 
 
 @router.post("/problems/{problem_id}/solution")
-async def problem_solution(problem_id: int) -> EventSourceResponse:
+async def problem_solution(problem_id: int, regenerate: bool = False) -> EventSourceResponse:
     with Session(db.engine) as session:
         problem = session.get(Problem, problem_id)
         if problem is None:
@@ -375,12 +380,9 @@ async def problem_solution(problem_id: int) -> EventSourceResponse:
     async def event_stream() -> AsyncIterator[dict]:
         try:
             with Session(db.engine) as session:
-                async for kind, data in core.stream_solution(session, problem):
-                    if kind == "citations":
-                        yield {
-                            "event": "citations",
-                            "data": json.dumps(data, ensure_ascii=False),
-                        }
+                async for kind, data in core.stream_solution(session, problem, regenerate=regenerate):
+                    if kind in ("meta", "citations"):
+                        yield {"event": kind, "data": json.dumps(data, ensure_ascii=False)}
                     else:
                         yield {
                             "event": "delta",

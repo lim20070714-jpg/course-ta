@@ -49,6 +49,8 @@ class Problem(SQLModel, table=True):
     stem: str = ""  # 题干（Markdown + LaTeX）
     answer: str = ""  # 参考答案/解析（材料自带，可能为空）
     knowledge: str = "[]"  # 知识点标签，JSON 数组字符串
+    solution: str = ""  # AI 详解（生成一次落库，之后直接读）
+    solution_citations: str = "[]"  # 详解引用的材料页，JSON 数组字符串
     created_at: datetime = Field(default_factory=_now)
 
 

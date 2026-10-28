@@ -24,11 +24,11 @@ def _require_chat_key(cfg: config.EffectiveSettings) -> None:
     raise LLMNotConfigured("未配置 LLM_API_KEY，请在 server/.env 中填写（参考 .env.example）")
 
 
-async def chat_stream(messages: list[dict]) -> AsyncIterator[str]:
+async def chat_stream(messages: list[dict], model: str | None = None) -> AsyncIterator[str]:
     """流式调用对话模型（OpenAI 兼容 /chat/completions），逐段产出文本。"""
     cfg = config.current()
     _require_chat_key(cfg)
-    payload = {"model": cfg.llm_model, "messages": messages, "stream": True}
+    payload = {"model": model or cfg.llm_model, "messages": messages, "stream": True}
     async with httpx.AsyncClient(timeout=_TIMEOUT) as client, client.stream(
         "POST",
         f"{cfg.llm_base_url}/chat/completions",

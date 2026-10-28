@@ -159,7 +159,7 @@ def exam_detail(exam_id: int) -> MockExamDetail:
                 answer_text=(answers[p.id].answer_text if p.id in answers else ""),
                 verdict=(answers[p.id].verdict if p.id in answers else "unanswered"),
                 feedback=(answers[p.id].feedback if p.id in answers else ""),
-                answer=p.answer if reveal else "",
+                answer=(p.answer or p.solution) if reveal else "",
             )
             for p in _ordered_problems(session, exam)
         ]

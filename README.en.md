@@ -10,7 +10,7 @@
 
 [中文](README.md) | **English**
 
-Current version **v0.19.0** ([release](https://github.com/lim20070714-jpg/course-ta/releases/tag/v0.19.0) · [changelog](CHANGELOG.md)).
+Current version **v0.20.0** ([release](https://github.com/lim20070714-jpg/course-ta/releases/tag/v0.20.0) · [changelog](CHANGELOG.md)).
 
 CourseTA turns course materials (PDF / PPTX / DOCX / TXT / MD / images) into a self-checkable study system: parse & index → full-text search → summaries with knowledge-point citations → concept graph → question bank with step-level grading → spaced repetition → timed mock exam → symbolic math workbench → circuit simulation. Every AI-generated answer carries `[source: filename, page X]` and resolves back to the rendered page image.
 
@@ -21,8 +21,8 @@ The UI is a **zone-based platform, not a chat wrapper**: eight zones, each a com
 | Backend | FastAPI + SQLModel + SQLite, sympy kernel, custom retrieval pipeline |
 | Frontend | React 19 + Vite + TypeScript, KaTeX, route-level lazy loading |
 | API | 42 paths / 57 operations, streaming Q&A over SSE |
-| Tests | 749 (321 backend / 428 frontend), fully offline, no API key required |
-| Size | ~35.9k lines (`server/app` 6.5k + `server/tests` 4.1k + `web/src` 18.8k + CSS 6.5k) |
+| Tests | 768 (340 backend / 428 frontend), fully offline, no API key required |
+| Size | ~36.5k lines (`server/app` 6.6k + `server/tests` 4.5k + `web/src` 18.8k + CSS 6.5k) |
 | License | MIT |
 
 > `docs/API.md` and `docs/DEPLOY.md` are currently Chinese-only; the quick start below is self-contained.
@@ -30,6 +30,16 @@ The UI is a **zone-based platform, not a chat wrapper**: eight zones, each a com
 ## Quick start
 
 Requires Python ≥ 3.12, [uv](https://docs.astral.sh/uv/), Node ≥ 20.
+
+One command (Windows):
+
+```bat
+start.bat            # builds web/dist if missing, then opens http://127.0.0.1:8000
+```
+
+`start.bat` checks for `web/dist/index.html` rather than rebuilding every time, and warns when `server/.env` is absent (the app then runs in BYOK mode). With a build present the backend serves the frontend on the same port, so no Vite proxy is needed.
+
+Manual start (two ports, better when editing frontend code):
 
 ```bash
 # backend
@@ -49,7 +59,7 @@ Minimum path on a fresh install:
 
 1. Create a course.
 2. Upload slides or exam papers → parsing and indexing run in the background; on completion a summary plus a knowledge-point list is generated. Opening a material shows the summary; clicking a page number next to a knowledge point jumps to the original page image. Tabs switch between text and page images; search covers the whole course.
-3. Click *extract* on an exam paper in the question bank zone → structured problems (stem / reference answer / knowledge tags), step-level grading and material-grounded explanations.
+3. Click *extract* on an exam paper in the question bank zone → structured problems (stem / reference answer / knowledge tags), step-level grading and material-grounded explanations. Explanations are generated once and stored, including the cited pages, so reopening a problem replays the cached text instead of paying for another call.
 4. Click *generate* in the concept graph zone → course overview, modules ordered by prerequisites, concept network; clicking a concept jumps to its source page and linked problems.
 5. The compute, lab, review, exam and trace zones work independently of steps 2–4.
 
@@ -60,6 +70,7 @@ cd server
 uv run python scripts/extract_problems.py --all        # or --material-id 3
 uv run python scripts/summarize.py --missing-only      # summaries for materials missing them
 uv run python scripts/build_graph.py --course-id 1     # requires material summaries
+uv run python scripts/generate_solutions.py --course-id 1   # only problems without answer or solution; --force regenerates
 ```
 
 For the container path (two services, single exposed port 8080) see [docs/DEPLOY.md](docs/DEPLOY.md).
@@ -69,9 +80,9 @@ For the container path (two services, single exposed port 8080) see [docs/DEPLOY
 | Zone (⌘/Ctrl+1..8) | Capability | Tables |
 | --- | --- | --- |
 | Materials | Upload PDF / PPTX / DOCX / TXT / MD / images; auto parse, index, summarize; paged reader, full-text search, citation jumps; delete and rename (display name and file on disk change together) | `Material` / `Chunk` / `Summary` |
-| Question bank | Exam papers split into structured problems; filter by material / knowledge point / practice state; step-level grading (correct / partial / wrong); explanations grounded in course materials; wrong-answer notebook; original page images | `Problem` / `Attempt` |
+| Question bank | Exam papers split into structured problems; filter by material / knowledge point / practice state; step-level grading (correct / partial / wrong); explanations grounded in course materials, generated once and persisted with their citations; wrong-answer notebook; original page images; problems without a reference answer are graded against their stored explanation | `Problem` / `Attempt` |
 | Study trace | Attempts grouped by day: count, distinct problems, ever-wrong problems, streak length; filter by verdict and jump back to any explanation | `Attempt` |
-| Review plan | SM-2 spaced repetition; exam sprint mode compresses intervals to before the exam date and re-ranks the due queue by topic frequency in the bank | `ReviewCard` / `Course.exam_date` |
+| Review plan | SM-2 spaced repetition; a card is created or rescheduled automatically after each graded attempt (correct / partial / wrong → quality 5 / 3 / 1); exam sprint mode compresses intervals to before the exam date and re-ranks the due queue by topic frequency in the bank | `ReviewCard` / `Course.exam_date` |
 | Timed exam | Random paper composition (problem count / duration / knowledge scope); server-authoritative deadline, survives reload, auto-submit on timeout; per-problem grading and percentage score; reference answers are not sent before grading finishes | `MockExam` / `ExamAnswer` |
 | Compute | 20+ sympy operations (calculus / algebra / transforms / linear algebra / complex), 35 preset formulas, custom symbol assumptions; the live preview is the inline KaTeX expression itself — limits, variable, expansion point, order and every matrix cell are click-to-edit; all runs including failures are logged | `Formula` / `ComputeRun` |
 | Concept graph | Two-stage extraction producing a prerequisite/related concept network; collapsible modules, tree sidebar, minimap; concepts anchored to page numbers and linked problems | `CourseGraph` / `Concept` / `ConceptEdge` |
@@ -97,6 +108,7 @@ flowchart LR
 - **Simulation.** Modified nodal analysis runs in the browser (DC / transient / AC), including ideal op-amps and waveform sources; 111 tests.
 - **Background jobs and state consistency.** Ingestion, summarization, graph building and grading run on FastAPI `BackgroundTasks` (in-process) while state lives in SQLite. On startup, [server/app/core/recovery.py](server/app/core/recovery.py) resets interrupted states once: materials / summaries / graphs → `failed` with an actionable `error`, exams → `running` (answers are already persisted per problem in `ExamAnswer`, so the paper stays workable and re-submittable).
 - **Frontend robustness.** Each zone is wrapped in an error boundary (bad data or a failed chunk fetch collapses one zone only) and lazy-loaded per route; entry JS is 247 kB (78 kB gzipped).
+- **Single-port hosting.** When `web/dist` exists the backend mounts `/assets` and falls back to `index.html`, so pages and `/api` share an origin. The fallback is a 404 handler rather than a catch-all route: only unmatched GETs reach the frontend, and `/api/*` 404s keep their original error message.
 
 ## Configuration
 
@@ -157,7 +169,7 @@ curl localhost:8000/api/chat \
 
 ```bash
 cd server
-uv run pytest                                        # 321 cases, fully offline (no API key)
+uv run pytest                                        # 340 cases, fully offline (no API key)
 uv run ruff check app tests                          # lint + format
 uv run python ../evals/run_eval.py --dry-run         # validate eval set format
 uv run python ../evals/run_eval.py --course-id 1     # live eval (needs .env + indexed materials)
@@ -180,8 +192,8 @@ course-ta/
 │   │   ├── api/           # courses, materials, browsing & search, summaries, graph, SSE chat, problems, review & sprint, exams, compute & history, lab drawings
 │   │   ├── core/          # LLM client, parsers, retrieval, sympy kernel & RAG, extraction & grading, summarization, graph, SM-2 & sprint compression, startup recovery
 │   │   └── models.py      # Course / Material / Chunk / Problem / Attempt / Summary / Formula / CourseGraph / Concept / ConceptEdge / ReviewCard / ComputeRun / LabDrawing / MockExam / ExamAnswer
-│   ├── scripts/           # reindex, batch extraction, batch summaries, graph build CLI
-│   └── tests/             # 26 files
+│   ├── scripts/           # reindex, batch extraction, batch summaries, graph build, batch explanation backfill
+│   └── tests/             # 27 files
 ├── web/                   # React + Vite + TypeScript
 │   └── src/
 │       ├── sections/      # the eight zones
@@ -197,8 +209,8 @@ course-ta/
 
 ## Releases and upgrades
 
-- The version lives in `FastAPI(version=...)` and in git tags (`v0.19.0`); every tag maps to a GitHub Release, entries in [CHANGELOG.md](CHANGELOG.md).
-- Upgrade: `git pull` → `cd server && uv sync` → `cd web && npm ci && npm run build` → restart services. Schema is created by `init_db()` at startup, preset formulas migrate with the version, uploaded materials and attempt records are untouched.
+- The version lives in `FastAPI(version=...)` and in git tags (`v0.20.0`); every tag maps to a GitHub Release, entries in [CHANGELOG.md](CHANGELOG.md).
+- Upgrade: `git pull` → `cd server && uv sync` → `cd web && npm ci && npm run build` → restart services. Schema is created by `init_db()` at startup; the `solution` / `solution_citations` columns are added to an existing `problem` table automatically, preset formulas migrate with the version, uploaded materials and attempt records are untouched.
 - The first startup after upgrading from v0.18 or earlier runs one state reset (see *Background jobs and state consistency*): materials / summaries / graphs stuck in progress become `failed` with a remediation hint, exams stuck in `grading` return to a workable state.
 - Full deployment, backup and rollback steps: [docs/DEPLOY.md](docs/DEPLOY.md).
 

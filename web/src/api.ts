@@ -117,6 +117,8 @@ export interface ProblemDetail {
   stem: string
   answer: string
   knowledge: string[]
+  solution: string
+  solution_citations: Citation[]
   attempts: Attempt[]
 }
 
@@ -586,12 +588,18 @@ export async function streamGrade(opts: {
 
 export async function streamSolution(opts: {
   problemId: number
+  regenerate?: boolean
+  onMeta?: (meta: { cached: boolean }) => void
   onCitations: (citations: Citation[]) => void
   onDelta: (text: string) => void
 }): Promise<void> {
-  const resp = await apiFetch(`/api/problems/${opts.problemId}/solution`, { method: 'POST' })
+  const query = opts.regenerate ? '?regenerate=true' : ''
+  const resp = await apiFetch(`/api/problems/${opts.problemId}/solution${query}`, {
+    method: 'POST',
+  })
   await streamSSE(resp, (event, data) => {
-    if (event === 'citations') opts.onCitations(JSON.parse(data))
+    if (event === 'meta') opts.onMeta?.(JSON.parse(data))
+    else if (event === 'citations') opts.onCitations(JSON.parse(data))
     else if (event === 'delta') opts.onDelta(JSON.parse(data).text)
     else if (event === 'error') throw new Error(JSON.parse(data).message)
   })

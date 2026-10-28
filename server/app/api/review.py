@@ -16,13 +16,13 @@ from app import db
 from app.api.problems import _excerpt
 from app.core.review import (
     SPRINT_SCHEDULE,
-    apply_sm2,
     card_weight,
     clamp_quality,
     days_until,
     exam_deadline,
     is_sprint,
     parse_exam_date,
+    reschedule,
     sprint_message,
     sprint_stage,
 )
@@ -345,26 +345,4 @@ def grade(problem_id: int, payload: ReviewGradeRequest) -> ReviewCardRead:
         ).first()
         if card is None:
             raise HTTPException(404, "该题目不在复习计划中")
-        course = session.get(Course, card.course_id)
-        # 只有冲刺期（考试 0..30 天内）才压缩；考试日已过则回到普通 SM-2
-        days_left = days_until(course.exam_date, datetime.now(UTC)) if course else None
-        exam_at = (
-            exam_deadline(course.exam_date)
-            if course is not None and course.exam_date is not None and is_sprint(days_left)
-            else None
-        )
-        now = datetime.now(UTC)
-        card.ease, card.interval_days, card.reps, card.lapses, card.due_at = apply_sm2(
-            card.ease,
-            card.interval_days,
-            card.reps,
-            card.lapses,
-            quality,
-            now,
-            exam_at=exam_at,
-        )
-        card.last_review_at = now
-        session.add(card)
-        session.commit()
-        session.refresh(card)
-        return _card_read(card)
+        return _card_read(reschedule(session, card, quality))

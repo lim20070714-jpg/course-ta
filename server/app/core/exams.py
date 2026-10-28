@@ -1,6 +1,6 @@
 """限时模考核心：组卷、逐题批改与计分。
 
-组卷只取「有参考答案」的题目——没有答案就无法给出可信判定。
+组卷只取「有参考答案」的题目——材料自带答案或已落库的 AI 详解都算；没有依据就无法给出可信判定。
 批改复用题库的步骤级提示词（core.problems.GRADE_SYSTEM），判定同时写入 Attempt，
 所以模考里做错的题会自然出现在错题本里，可以一键加入复习计划。
 
@@ -15,8 +15,8 @@ from typing import Any
 from sqlmodel import Session, select
 
 from app import config, db
-from app.core import llm
-from app.core.problems import GRADE_SYSTEM, detect_verdict, parse_tags
+from app.core import llm, review
+from app.core.problems import GRADE_SYSTEM, detect_verdict, parse_tags, reference_for_grading
 from app.models import Attempt, ExamAnswer, MockExam, Problem
 
 # 判定 → 单题得分（正确 1、部分正确 0.5，其余 0）
@@ -51,8 +51,8 @@ def clear_job(exam_id: int) -> None:
 
 
 def gradeable(problems: list[Problem]) -> list[Problem]:
-    """可组进卷子的题目：题干与参考答案都非空。"""
-    return [p for p in problems if p.stem.strip() and p.answer.strip()]
+    """可组进卷子的题目：题干非空，且有材料答案或已落库的 AI 详解作为批改依据。"""
+    return [p for p in problems if p.stem.strip() and (p.answer.strip() or p.solution.strip())]
 
 
 def assemble(problems: list[Problem], count: int, seed: int | None = None) -> list[Problem]:
@@ -80,7 +80,7 @@ async def grade_one(problem: Problem, answer_text: str) -> tuple[str, str]:
     """批改一题，返回 (verdict, feedback)。空白作答不调用模型，直接记为未作答。"""
     if not answer_text.strip():
         return "unanswered", ""
-    ref = f"\n参考答案与解析：\n{problem.answer}\n" if problem.answer else "\n（本题没有参考答案）\n"
+    ref = reference_for_grading(problem)
     text = await llm.complete(
         [
             {"role": "system", "content": GRADE_SYSTEM},
@@ -145,15 +145,17 @@ async def run_grading(exam_id: int) -> None:
                         )
                     )
                 # 未作答也记一笔（判为错误），让模考跳过的问题进错题本
+                counted = "wrong" if verdict == "unanswered" else verdict
                 session.add(
                     Attempt(
                         problem_id=problem.id or 0,
                         answer_text=answer_text,
-                        verdict="wrong" if verdict == "unanswered" else verdict,
+                        verdict=counted,
                         feedback=feedback or "【判定】错误\n\n未作答。",
                     )
                 )
                 session.commit()
+                review.schedule_after_verdict(session, problem.id or 0, counted)
             _JOBS[exam_id]["graded"] += 1
 
         with Session(db.engine) as session:

@@ -9,8 +9,15 @@
 
 from datetime import UTC, datetime, timedelta
 
+from sqlmodel import Session, select
+
+from app.models import Course, Problem, ReviewCard
+
 MIN_EASE = 1.3
 LEARN_DAYS = (1.0, 6.0)  # 第 1、2 次记住后的固定间隔
+
+# 批改判定 -> 复习评分：做对视为轻松回忆，半对视为勉强记起，做错按遗忘重置
+VERDICT_QUALITY = {"correct": 5, "partial": 3, "wrong": 1}
 
 SPRINT_WINDOW_DAYS = 30  # 距考试 <= 30 天进入冲刺期
 SPRINT_MIN_INTERVAL = 0.5  # 最小压缩间隔（天）：再短就没有复习意义
@@ -95,6 +102,56 @@ def apply_sm2(
     if exam_at is not None:
         interval = min(interval, cap_interval(now, exam_at))  # 压缩只降不升
     return ease2, interval, reps2, lapses2, now + timedelta(days=interval)
+
+
+def reschedule(
+    session: Session, card: ReviewCard, quality: int, now: datetime | None = None
+) -> ReviewCard:
+    """按一次评分推进卡片的 SM-2 状态（含冲刺压缩），返回同一张卡片。"""
+    now = now or datetime.now(UTC)
+    course = session.get(Course, card.course_id)
+    days_left = days_until(course.exam_date, now) if course else None
+    exam_at = (
+        exam_deadline(course.exam_date)
+        if course is not None and course.exam_date is not None and is_sprint(days_left)
+        else None
+    )
+    card.ease, card.interval_days, card.reps, card.lapses, card.due_at = apply_sm2(
+        card.ease,
+        card.interval_days,
+        card.reps,
+        card.lapses,
+        quality,
+        now,
+        exam_at=exam_at,
+    )
+    card.last_review_at = now
+    session.add(card)
+    session.commit()
+    session.refresh(card)
+    return card
+
+
+def schedule_after_verdict(
+    session: Session, problem_id: int, verdict: str, now: datetime | None = None
+) -> ReviewCard | None:
+    """批改判定落库后维护复习卡：首次出现即建卡，并按判定推进一次 SM-2。
+
+    「无法判断」不改变复习安排；返回 None 表示这次判定没有被计入。
+    """
+    quality = VERDICT_QUALITY.get(verdict)
+    if quality is None:
+        return None
+    card = session.exec(select(ReviewCard).where(ReviewCard.problem_id == problem_id)).first()
+    if card is None:
+        problem = session.get(Problem, problem_id)
+        if problem is None:
+            return None
+        card = ReviewCard(problem_id=problem_id, course_id=problem.course_id)
+        session.add(card)
+        session.commit()
+        session.refresh(card)
+    return reschedule(session, card, quality, now)
 
 
 def days_until(exam_date: datetime | None, now: datetime) -> int | None:

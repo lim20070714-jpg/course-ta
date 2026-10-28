@@ -150,8 +150,8 @@ export default function Bank({
         setVerdict('')
         setGradeText('')
         setHint('')
-        setSolutionText('')
-        setSolutionCitations([])
+        setSolutionText(d.solution ?? '')
+        setSolutionCitations(d.solution_citations ?? [])
       })
       .catch((e: Error) => setNotice(e.message))
   }, [])
@@ -205,6 +205,9 @@ export default function Bank({
       })
       const refreshed = await getProblem(current.id)
       setCurrent(refreshed)
+      getProblemReview(current.id)
+        .then(setReview)
+        .catch(() => undefined)
       setTimeout(() => historyRef.current?.scrollIntoView({ behavior: 'smooth' }), 150)
     } catch (e) {
       setNotice((e as Error).message)
@@ -227,18 +230,30 @@ export default function Bank({
     }
   }
 
-  async function solve() {
+  async function solve(regenerate = false) {
     if (!current || solving) return
     setSolving(true)
     setSolutionText('')
     setSolutionCitations([])
     setNotice('')
+    let acc = ''
+    let cited: Citation[] = []
     try {
       await streamSolution({
         problemId: current.id,
-        onCitations: setSolutionCitations,
-        onDelta: (t) => setSolutionText((s) => s + t),
+        regenerate,
+        onCitations: (c) => {
+          cited = c
+          setSolutionCitations(c)
+        },
+        onDelta: (t) => {
+          acc += t
+          setSolutionText((s) => s + t)
+        },
       })
+      setCurrent((p) =>
+        p && p.id === current.id ? { ...p, solution: acc, solution_citations: cited } : p,
+      )
     } catch (e) {
       setNotice((e as Error).message)
     } finally {
@@ -463,14 +478,22 @@ export default function Bank({
                   <div className="md-body bubble">
                     <RichText text={current.answer} />
                   </div>
+                ) : current.solution ? (
+                  <p className="prob-hint">
+                    材料中未附带该题解答，下面是助教结合课程材料生成的参考解答，批改与模考以它为依据。
+                  </p>
                 ) : (
                   <p className="prob-hint">
-                    材料中未附带该题解答。点击「AI 详解」，助教会结合课程材料完整推导。
+                    材料中未附带该题解答。点击「AI 详解」，助教会结合课程材料完整推导，生成一次后落库。
                   </p>
                 )}
                 <div className="prob-actions">
-                  <button className="ghost-btn" onClick={solve} disabled={solving}>
-                    {solving ? '生成中…' : 'AI 详解'}
+                  <button
+                    className="ghost-btn"
+                    onClick={() => solve(Boolean(current.solution))}
+                    disabled={solving}
+                  >
+                    {solving ? '生成中…' : current.solution ? '重新生成详解' : 'AI 详解'}
                   </button>
                   {solutionCitations.length > 0 && (
                     <div className="citations">

@@ -1,9 +1,20 @@
 # 更新记录
 
 版本号对应 git tag 与 GitHub Release。日期是合入 `main` 的提交日期。
-当前版本：**v0.19.0**。
+当前版本：**v0.20.0**。
 
 ---
+
+## v0.20.0 — 2026-10-28
+
+AI 详解生成一次落库；无参考答案的题也能批改；作答后自动排复习卡；一条命令启动全栈。
+
+- AI 详解不再每次重算：`Problem` 增加 `solution` 与 `solution_citations` 两列（[server/app/db.py](server/app/db.py) 启动时补列），首次生成后写库并带着引用页一起落盘。`POST /api/problems/{id}/solution` 命中缓存时首帧发 `meta: {"cached": true}` 再逐段回放已存详解，`?regenerate=true` 才重新调模型；前端按钮随状态变成「AI 详解 / 重新生成详解」。引用取自生成时的检索结果，事后不再受材料改动影响。
+- 批改参考源改为三级回退：材料自带答案 → AI 详解 → 明确告知「本题材料中没有参考答案」，不再对无答案题给出凭空的判词（`reference_for_grading`）。试卷批改与限时模考共用同一回退。
+- 作答后自动进入复习计划：正确 / 部分正确 / 错误分别映射 SM-2 质量分 5 / 3 / 1（`schedule_after_verdict`），手工批改与模考批改都会建卡或重排下次复习；冲刺模式（考试日期 + 间隔压缩）的排期逻辑收进 `review.reschedule`，两条入口共用。
+- 批量补详解脚本 [server/scripts/generate_solutions.py](server/scripts/generate_solutions.py)：按课程 / 材料筛选，默认只补无答案且无详解的题，`--force` / `--include-answered` 放宽范围，并发与重试可调，单题失败不中断整批。
+- 一键启动与单端口托管：`start.bat` 检查前端构建产物（缺则 `npm install && npm run build`）、提示缺少 `server/.env`、启动后自动开浏览器；构建产物存在时后端直接托管前端（`/assets` 静态挂载 + 根路径回 `index.html`），不再需要 Vite 代理或第二个端口。前端兜底用 404 处理器实现而非通配路由，`/api/*` 的 404 仍保留原始 `detail`。
+- 测试数：后端 340（+19：详解缓存 9、自动排期 8、托管 2）、前端 428。
 
 ## v0.19.0 — 2026-10-17
 

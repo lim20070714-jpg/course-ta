@@ -142,6 +142,8 @@ class ProblemDetailRead(BaseModel):
     stem: str
     answer: str
     knowledge: list[str]
+    solution: str = ""
+    solution_citations: list[SearchHit] = []
     attempts: list[AttemptRead]
 
 

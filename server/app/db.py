@@ -45,6 +45,18 @@ def _ensure_material_pages() -> None:
         conn.exec_driver_sql("ALTER TABLE material ADD COLUMN pages VARCHAR NOT NULL DEFAULT '[]'")
 
 
+def _ensure_problem_solution() -> None:
+    """给旧库补 Problem.solution / solution_citations 列（AI 详解落库）。"""
+    with engine.begin() as conn:
+        cols = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(problem)")}
+        if "solution" not in cols:
+            conn.exec_driver_sql("ALTER TABLE problem ADD COLUMN solution VARCHAR NOT NULL DEFAULT ''")
+        if "solution_citations" not in cols:
+            conn.exec_driver_sql(
+                "ALTER TABLE problem ADD COLUMN solution_citations VARCHAR NOT NULL DEFAULT '[]'"
+            )
+
+
 def init_db() -> None:
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     import app.models  # noqa: F401  导入以注册表结构
@@ -53,3 +65,4 @@ def init_db() -> None:
     _ensure_material_kind()
     _ensure_course_exam_date()
     _ensure_material_pages()
+    _ensure_problem_solution()

@@ -16,10 +16,10 @@ LLM 只做支撑（抽取、批改、总结、图谱归纳），学生始终在�
 | --- | --- |
 | 主界面分区 | 8 个（⌘1..8 与命令面板直达） |
 | 后端 API operation | 57 个（覆盖 42 条路径），OpenAPI 自动生成 |
-| 自动化测试 | **749** 个：后端 321（pytest，26 个文件，全部离线）+ 前端 428（Vitest，20 个文件） |
+| 自动化测试 | **768** 个：后端 340（pytest，27 个文件，全部离线）+ 前端 428（Vitest，20 个文件） |
 | 静态检查 | ruff + tsc + oxlint 零告警；CI 2 个 job（后端 / 前端）全绿 |
-| 代码规模 | 约 35.9k 行：后端 `server/app` 6,493、`server/tests` 4,125、前端 `web/src` ts/tsx 18,774、`web/src/index.css` 6,535 |
-| 自托管 | `docker-compose` 一键；前端 nginx 静态托管 + 反向代理；默认 `http://localhost:8080` |
+| 代码规模 | 约 36.5k 行：后端 `server/app` 6,647、`server/tests` 4,503、前端 `web/src` ts/tsx 18,805、`web/src/index.css` 6,535 |
+| 自托管 | `start.bat` 本机一键（缺构建产物自动 build，单端口托管前后端）；`docker-compose` 一键；默认 `http://localhost:8080` |
 | 密钥模式 | BYOK：用户填自己的 Key，服务端可完全不留密钥 |
 | 许可 | MIT |
 
@@ -55,7 +55,7 @@ PDF 拆成一行只有两三个字的碎片。管线因此分四步：按 span �
 
 **5. 限时模考的服务端权威计时与答案保密（`server/app/core/exams.py`、`api/exams.py`，测试 17 个）**
 倒计时不放在浏览器：服务端记录 `deadline_at = started_at + duration_min`，每个响应回传 `seconds_left`，
-刷新页面不会重置，到点自动交卷并标记 `late`。组卷只取「题干与参考答案都非空」的题（没有答案就无法给可信判定），
+刷新页面不会重置，到点自动交卷并标记 `late`。组卷只取「题干非空且至少有参考答案或已生成详解」的题（两者都没有就无法给可信判定），
 抽取核心接受 seed 以便复现同一份卷子（测试依赖这点）；参考答案在 `status != done` 之前**绝不下发**。批改是后台任务（一题一次模型调用，
 整卷可能几分钟），进度与逐题判定分别放在进程内任务表和数据库里，服务重启只丢进度不丢成绩。
 做错的题同步写入 Attempt，于是模考里的错题自然进入错题本和复习计划。
@@ -126,13 +126,24 @@ App 用「分区 + 课程」当 key，切分区或换课程自然重挂载、错
 所以不参与课程 key——否则换课程会把你正在算的式子和画了一半的图纸清光。
 分区懒加载顺带做了：入口 JS 从 883 kB 降到 247 kB（gzip 78 kB），KaTeX 所在的 429 kB 共享块只在含公式的分区挂载时才取。
 
+**10. 详解只生成一次，批改有据可依（`server/app/core/problems.py`、`core/review.py`、`scripts/generate_solutions.py`）**
+AI 详解原先每点一次就重跑一遍检索加生成，几百道题的题库既慢又贵。这里把它变成**物化数据**：
+`Problem` 增加 `solution` 与 `solution_citations` 两列（老库启动时按 `PRAGMA table_info` 补列），
+首次生成后连同引用页一起落库；再打开走缓存路径，首帧发 `meta: {"cached": true}` 后直接回放已存文本，
+`?regenerate=true` 才重新调模型。引用存的是**生成当时**的检索结果，材料后来被删改不会改变已有详解的出处。
+批改的参考源随之改为三级回退：参考答案 → 已存详解 → 明确告知「本题材料中没有参考答案」，
+于是没有答案的题（本地 536 道）也能给出有据的判定，而不是让模型凭空发挥。
+批量补齐用 `generate_solutions.py`：只挑「无答案且无详解」的题，并发与重试可调，单题失败不阻塞整批。
+判定结果同时接上复习排期：正确 / 部分正确 / 错误映射 SM-2 质量分 5 / 3 / 1，
+手工批改与模考批改共用 `review.reschedule`，冲刺压缩只写一份。
+
 ## 工程实践
 
 - **BYOK 用 contextvar 做按请求覆盖**（`server/app/config.py`）：请求头里的 Key / Base URL / Model 只在该请求的
   上下文内生效，不改全局配置；头部值截断到 300 字符；`describe_runtime` 与 `/api/config` 只回答「服务端有没有配密钥」，
   永不回显密钥本身。中间件 `BYOKMiddleware` 是**原生 ASGI** 而非 `BaseHTTPMiddleware`——后者会缓冲响应，
   会破坏项目里大量使用的 SSE 流式输出。
-- **测试不依赖本机配置**：涉及密钥的用例用哨兵值 monkeypatch，321 个后端测试在任何没有 `.env` 的机器上
+- **测试不依赖本机配置**：涉及密钥的用例用哨兵值 monkeypatch，340 个后端测试在任何没有 `.env` 的机器上
   （包括 CI）都能离线通过；前端 428 个用例同理。**碰到模块级 `db.engine` 的用例必须打补丁**——忘了打就会
   连到真实的 `data/course_ta.db` 上动用户数据，这一点在 recovery 的测试里用 fixture 兜死了。
 - **CI 门禁**：后端 `uv sync → ruff check → pytest`，前端 `npm ci → oxlint → vitest → tsc -b && vite build`，两个 job。
@@ -149,7 +160,7 @@ App 用「分区 + 课程」当 key，切分区或换课程自然重挂载、错
 
 ```bash
 cd server
-uv run pytest -q          # 321 passed（无需 API key）
+uv run pytest -q          # 340 passed（无需 API key）
 uv run ruff check .       # 零告警
 uv run python -c "from app.main import app; print(sum(1 for p in app.openapi()['paths'].values() for m in p if m in {'get','post','put','patch','delete'}))"   # 57
 

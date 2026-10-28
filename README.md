@@ -10,7 +10,7 @@
 
 **中文** | [English](README.en.md)
 
-当前版本 **v0.19.0**（[Release](https://github.com/lim20070714-jpg/course-ta/releases/tag/v0.19.0) · [更新记录](CHANGELOG.md)）。
+当前版本 **v0.20.0**（[Release](https://github.com/lim20070714-jpg/course-ta/releases/tag/v0.20.0) · [更新记录](CHANGELOG.md)）。
 
 把课程材料（PDF / PPTX / DOCX / TXT / MD / 图片）转换成一套可自查的学习系统：解析入库 → 全文检索 → 总结与知识点引用 → 概念图谱 → 题库与步骤级批改 → 间隔重复复习 → 限时模考 → 符号计算 → 电路仿真。所有 AI 产出带 `[来源: 文件名 第X页]`，可逐条回溯到原始页图。
 
@@ -21,8 +21,8 @@
 | 后端 | FastAPI + SQLModel + SQLite，sympy 符号计算内核，自研检索管线 |
 | 前端 | React 19 + Vite + TypeScript，KaTeX，按分区懒加载 |
 | 接口 | 42 条路径 / 57 个操作，问答走 SSE |
-| 测试 | 749 个（后端 321 / 前端 428），全程离线，不需要 API key |
-| 代码规模 | 约 35.9k 行（`server/app` 6.5k + `server/tests` 4.1k + `web/src` 18.8k + 样式 6.5k） |
+| 测试 | 768 个（后端 340 / 前端 428），全程离线，不需要 API key |
+| 代码规模 | 约 36.5k 行（`server/app` 6.6k + `server/tests` 4.5k + `web/src` 18.8k + 样式 6.5k） |
 | 许可 | MIT |
 
 ## 文档
@@ -38,6 +38,16 @@
 ## 快速开始
 
 环境：Python ≥ 3.12、[uv](https://docs.astral.sh/uv/)、Node ≥ 20。
+
+一条命令（Windows）：
+
+```bat
+start.bat            # 缺构建产物时自动 npm install + build，然后开 http://127.0.0.1:8000
+```
+
+`start.bat` 只检查 `web/dist/index.html` 是否存在，不重复构建；`server/.env` 缺失时给出提示并继续（进入 BYOK 模式）。构建产物在时后端单端口托管前端，不需要另外跑 Vite。
+
+手动启动（前后端分端口，适合改前端代码）：
 
 ```bash
 # 后端
@@ -57,7 +67,7 @@ npm run dev                   # http://localhost:5173，/api 代理到 localhost
 
 1. 新建课程。
 2. 上传课件或试卷 → 后台自动解析入库，完成后生成「整体总结 + 知识点清单」；材料页默认显示总结，点击知识点旁的页码跳到原页图，「原文 / 原页图」可切换，顶部支持全文搜索。
-3. 在「题库与解答」对试卷点「提取」→ 结构化题目（题干 / 参考答案 / 知识点标签），作答后可步骤级批改与 AI 详解。
+3. 在「题库与解答」对试卷点「提取」→ 结构化题目（题干 / 参考答案 / 知识点标签），作答后可步骤级批改与 AI 详解；详解生成一次即落库，下次直接读缓存，引用过的材料页一并保存。
 4. 在「知识图谱」点「生成」→ 通读该课程全部总结，产出课程总览、按学习顺序排列的模块与概念网络，点击概念跳出处原页与关联真题。
 5. 「计算台」「电路实验台」「复习计划」「限时模考」「做题足迹」不依赖前四步，随时可用。
 
@@ -68,6 +78,7 @@ cd server
 uv run python scripts/extract_problems.py --all        # 或 --material-id 3
 uv run python scripts/summarize.py --missing-only      # 为未总结的材料批量生成
 uv run python scripts/build_graph.py --course-id 1     # 需先完成材料总结
+uv run python scripts/generate_solutions.py --course-id 1   # 只补「无答案且无详解」的题，可 --force 重生成
 ```
 
 容器方式（api + web 两个服务，对外只有 8080）见 [docs/DEPLOY.md](docs/DEPLOY.md)。
@@ -77,9 +88,9 @@ uv run python scripts/build_graph.py --course-id 1     # 需先完成材料总�
 | 分区（⌘/Ctrl+1..8） | 能力 | 落库 |
 | --- | --- | --- |
 | 课程资料 | 上传 PDF / PPTX / DOCX / TXT / MD / 图片，自动解析入库并生成总结与知识点清单；分页阅读、全文搜索、引用跳页；可删除、可改名（显示名与磁盘原件一起改） | `Material` / `Chunk` / `Summary` |
-| 题库与解答 | 试卷拆结构化题目，按材料 / 知识点 / 练习状态筛选；步骤级批改（正确 / 部分正确 / 错误）、结合课程材料的 AI 详解、错题本、原题页图回看 | `Problem` / `Attempt` |
+| 题库与解答 | 试卷拆结构化题目，按材料 / 知识点 / 练习状态筛选；步骤级批改（正确 / 部分正确 / 错误）、结合课程材料的 AI 详解（生成一次落库、引用页一并保存）、错题本、原题页图回看；无答案的题以 AI 详解作批改参考 | `Problem` / `Attempt` |
 | 做题足迹 | 按天回看作答：次数、题数、曾做错题数、连续天数，按判定筛选并跳回详解 | `Attempt` |
-| 复习计划 | SM-2 间隔重复；设置考试日期进入冲刺模式（间隔压缩到考前、按考点热度加权、倒计时与理由标注） | `ReviewCard` / `Course.exam_date` |
+| 复习计划 | SM-2 间隔重复；作答判定正确 / 部分正确 / 错误后自动建卡或重排；设置考试日期进入冲刺模式（间隔压缩到考前、按考点热度加权、倒计时与理由标注） | `ReviewCard` / `Course.exam_date` |
 | 限时模考 | 随机组卷（题数 / 时长 / 知识点范围），服务端权威倒计时，刷新不重置，到点自动交卷；逐题批改与百分制得分，参考答案在批改完成前不下发 | `MockExam` / `ExamAnswer` |
 | 计算台 | sympy 符号计算 20+ 操作（微积分 / 代数 / 变换 / 线性代数 / 复数），预置 35 条公式，自定义符号类型；实时预览即行内 KaTeX 算式，上下限 / 变量 / 展开点 / 阶数与矩阵每一格就地可改；每次运算含失败都记历史 | `Formula` / `ComputeRun` |
 | 知识图谱 | 两级抽取生成概念网络（前置 / 相关），模块折叠、树形导航、缩略图；概念锚定原页码并关联真题 | `CourseGraph` / `Concept` / `ConceptEdge` |
@@ -105,6 +116,7 @@ flowchart LR
 - **仿真**：改进节点法（MNA）在浏览器内运行，直流 / 瞬态 / 交流三视图，含理想运放与波形源；测试覆盖 111 例。
 - **后台任务与状态一致性**：入库、总结、图谱、批改挂在 `BackgroundTasks` 上（进程内），持久状态在 SQLite。进程重启会在 [server/app/core/recovery.py](server/app/core/recovery.py) 一次性复位：资料 / 总结 / 图谱 → `failed` 并写明补救动作，模考 → `running`（作答逐题已落 `ExamAnswer`，可继续作答并重新交卷）。
 - **前端健壮性**：每个分区外层有错误边界（脏数据或 chunk 拉取失败只影响单分区），分区按路由懒加载，入口 JS 247 kB（gzip 78 kB）。
+- **单端口托管**：`web/dist` 存在时后端挂 `/assets` 静态目录并回落到 `index.html`，页面与 `/api` 同源；回落注册为 404 处理器，未命中路由的 GET 才交给前端，`/api/*` 的 404 保持原有错误信息。
 
 ## 配置
 
@@ -167,7 +179,7 @@ curl localhost:8000/api/chat \
 
 ```bash
 cd server
-uv run pytest                                        # 321 个用例，全程离线（不需要 API key）
+uv run pytest                                        # 340 个用例，全程离线（不需要 API key）
 uv run ruff check app tests                          # lint + format 检查
 uv run python ../evals/run_eval.py --dry-run         # 校验评测集格式
 uv run python ../evals/run_eval.py --course-id 1     # 真实评测（需已配置 .env 且材料已入库）
@@ -190,8 +202,8 @@ course-ta/
 │   │   ├── api/           # 课程、材料、浏览与搜索、总结、图谱、SSE 问答、题库、复习与冲刺、模考、计算台与历史、实验台图纸
 │   │   ├── core/          # LLM 客户端、解析、检索、sympy 内核与 RAG、抽取与批改、总结、图谱、SM-2 与冲刺压缩、启动复位
 │   │   └── models.py      # Course / Material / Chunk / Problem / Attempt / Summary / Formula / CourseGraph / Concept / ConceptEdge / ReviewCard / ComputeRun / LabDrawing / MockExam / ExamAnswer
-│   ├── scripts/           # 重索引、批量抽题、批量总结、图谱生成 CLI
-│   └── tests/             # 26 个测试文件
+│   ├── scripts/           # 重索引、批量抽题、批量总结、图谱生成、批量补 AI 详解
+│   └── tests/             # 27 个测试文件
 ├── web/                   # React + Vite + TypeScript
 │   └── src/
 │       ├── sections/      # 8 个分区页面
@@ -207,8 +219,8 @@ course-ta/
 
 ## 发布与升级
 
-- 版本号同时写在 `FastAPI(version=...)` 与 git tag（`v0.19.0`）；变更条目在 [CHANGELOG.md](CHANGELOG.md)，每个 tag 对应一条 GitHub Release。
-- 升级：`git pull` → `cd server && uv sync` → `cd web && npm ci && npm run build` → 重启服务。数据库结构由启动时的 `init_db()` 建立，预置公式随版本自动迁移，已上传材料与作答记录不受影响。
+- 版本号同时写在 `FastAPI(version=...)` 与 git tag（`v0.20.0`）；变更条目在 [CHANGELOG.md](CHANGELOG.md)，每个 tag 对应一条 GitHub Release。
+- 升级：`git pull` → `cd server && uv sync` → `cd web && npm ci && npm run build` → 重启服务。数据库结构由启动时的 `init_db()` 建立，`problem` 表缺失的 `solution` / `solution_citations` 列会自动补上（默认空值），预置公式随版本自动迁移，已上传材料与作答记录不受影响。
 - 从 v0.18 及更早升级后第一次启动会执行一次状态复位（见上文「后台任务与状态一致性」），此前卡在「进行中」的资料 / 总结 / 图谱会被标为 `failed` 并给出补救动作，卡在「批改中」的模考会退回可作答状态。
 - 完整的部署、备份与回滚步骤见 [docs/DEPLOY.md](docs/DEPLOY.md)。
 

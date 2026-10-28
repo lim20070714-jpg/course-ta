@@ -306,9 +306,9 @@ export default function Review({
                         </div>
                       </div>
                       <div className="flip-face flip-back">
-                        {detail.answer ? (
+                        {detail.answer || detail.solution ? (
                           <div className="md-body bubble review-answer">
-                            <RichText text={detail.answer} />
+                            <RichText text={detail.answer || detail.solution} />
                           </div>
                         ) : (
                           <div className="review-answer-missing">

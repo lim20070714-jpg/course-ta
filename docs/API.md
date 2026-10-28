@@ -197,11 +197,11 @@ curl -X POST http://127.0.0.1:8000/api/courses/1/materials \
 | GET | `/api/courses/{course_id}/problem-sources` | 题源列表：每份材料的题目数与抽取任务状态（`job_status`: idle/running/done/failed） |
 | POST | `/api/materials/{material_id}/extract-problems` | 手动触发题目抽取（材料必须 `ready`；已在跑则 409） |
 | GET | `/api/courses/{course_id}/problems` | 题目列表。查询参数：`material_id`、`knowledge`（按知识点过滤）、`status`（`unseen`/`wrong`/`correct`）、`q`、`offset`、`limit`（1–200，默认 50） |
-| GET | `/api/problems/{problem_id}` | 题目详情：题干、参考答案、知识点、历史作答 `attempts[]` |
+| GET | `/api/problems/{problem_id}` | 题目详情：题干、参考答案、已存 AI 详解 `solution` 与其引用页 `solution_citations[]`、知识点、历史作答 `attempts[]` |
 | GET | `/api/problems/{problem_id}/image?zoom=2` | 题目配图：从试卷页裁出该题区域（仅 PDF 来源） |
 | POST | `/api/problems/{problem_id}/hint` | 一句话方向提示（非流式，可能耗时较长） |
-| POST | `/api/problems/{problem_id}/grade` | 批改作答（SSE）。body `{"answer":"..."}`；结果会写入错题本 |
-| POST | `/api/problems/{problem_id}/solution` | AI 详解（SSE） |
+| POST | `/api/problems/{problem_id}/grade` | 批改作答（SSE）。body `{"answer":"..."}`；结果写入错题本并按判定重排复习卡。参考源依次取参考答案、AI 详解 |
+| POST | `/api/problems/{problem_id}/solution` | AI 详解（SSE）。无缓存时调用模型并落库；带 `?regenerate=true` 强制重新生成 |
 | GET | `/api/courses/{course_id}/wrongbook` | 错题本：最近判定为 `wrong` / `partial` 的题目 |
 | GET | `/api/courses/{course_id}/attempts` | 做题足迹：整门课的作答记录，最新在前。查询参数 `verdict`（`correct`/`partial`/`wrong`/`unknown`）、`offset`、`limit`（1–500，默认 100） |
 | GET | `/api/courses/{course_id}/problem-tags` | 知识点及其题目数（按题数降序） |
@@ -214,7 +214,7 @@ curl -X POST http://127.0.0.1:8000/api/courses/1/materials \
 
 - `/grade`：`verdict`（最多一次，`{"verdict":"correct|partial|wrong|unknown"}`）→ `delta`（正文增量）→ `error` → `done`。
   注意 `verdict` 由模型输出里的 `【判定】` 标记解析而来，可能出现在 `delta` 之后（未解析到时以 `unknown` 结尾）。
-- `/solution`：`citations` → `delta` → `error` → `done`。
+- `/solution`：`meta`（`{"cached": true|false}`，首帧）→ `citations`（生成时检索到的材料页，缓存命中时同样下发）→ `delta` → `error` → `done`。
 
 ### 3.6 知识图谱
 
@@ -264,7 +264,7 @@ curl -X POST http://127.0.0.1:8000/api/compute/evaluate \
 | GET | `/api/problems/{problem_id}/review` | 该题的复习卡片，未加入时返回 `null` |
 | PUT | `/api/problems/{problem_id}/review` | 把题目加入复习计划（幂等） |
 | DELETE | `/api/problems/{problem_id}/review` | 移出复习计划 |
-| POST | `/api/problems/{problem_id}/review/grade` | 自评并推进 SM-2，body `{"quality":0..5}`（<3 视为遗忘） |
+| POST | `/api/problems/{problem_id}/review/grade` | 自评并推进 SM-2，body `{"quality":0..5}`（<3 视为遗忘）。作答批改也会自动调用同一套排期（正确 / 部分正确 / 错误 → 5 / 3 / 1） |
 
 冲刺期定义：设置了考试日期且 `0 <= days_left <= 30`。
 
@@ -343,7 +343,7 @@ data: {}\r\n
 | `/api/problems/{id}/grade` | `verdict` | `{"verdict":"correct"\|"partial"\|"wrong"\|"unknown"}` |
 | | `delta` | `{"text":"增量文本"}` |
 | | `error` / `done` | 同上 |
-| `/api/problems/{id}/solution` | `citations` / `delta` / `error` / `done` | 同上 |
+| `/api/problems/{id}/solution` | `meta` / `citations` / `delta` / `error` / `done` | 同上 |
 
 ### 心跳与代理
 

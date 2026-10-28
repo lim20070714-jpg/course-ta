@@ -9,7 +9,7 @@ from typing import Any
 from sqlmodel import Session, delete
 
 from app import config, db
-from app.core import llm
+from app.core import llm, review
 from app.core.ingest import extract_pages
 from app.core.pages import group_pages
 from app.core.rag import retrieve
@@ -329,13 +329,18 @@ async def generate_hint(problem: Problem) -> str:
     return hint.strip()
 
 
+def reference_for_grading(problem: Problem) -> str:
+    """批改依据：材料自带答案优先，否则用已落库的 AI 详解。"""
+    if problem.answer:
+        return f"\n参考答案与解析：\n{problem.answer}\n"
+    if problem.solution:
+        return f"\n参考解答（助教依据课程材料生成）：\n{problem.solution}\n"
+    return "\n（本题材料中没有参考答案）\n"
+
+
 async def stream_grade(problem: Problem, student_answer: str) -> AsyncIterator[tuple[str, Any]]:
     """批改流：产出 ("verdict", 判定) 至多一次和若干 ("delta", 文本片段)；结束前存作答记录。"""
-    ref = (
-        f"\n参考答案与解析：\n{problem.answer}\n"
-        if problem.answer
-        else "\n（本题材料中没有参考答案）\n"
-    )
+    ref = reference_for_grading(problem)
     messages = [
         {"role": "system", "content": GRADE_SYSTEM},
         {
@@ -358,33 +363,31 @@ async def stream_grade(problem: Problem, student_answer: str) -> AsyncIterator[t
         yield ("delta", piece)
     if not verdict_sent:
         yield ("verdict", "unknown")
+    score = detect_verdict(acc) or "unknown"
     with Session(db.engine) as session:
         session.add(
             Attempt(
                 problem_id=problem.id or 0,
                 answer_text=student_answer,
-                verdict=detect_verdict(acc) or "unknown",
+                verdict=score,
                 feedback=acc,
             )
         )
         session.commit()
+        review.schedule_after_verdict(session, problem.id or 0, score)
 
 
-async def stream_solution(session: Session, problem: Problem) -> AsyncIterator[tuple[str, Any]]:
-    """AI 详解流：先产出 ("citations", [...]), 再不断产出 ("delta", 文本片段)。"""
+async def _solution_prompt(session: Session, problem: Problem) -> tuple[list[dict], list[dict]]:
     hits = await retrieve(session, problem.course_id, problem.stem[:300], top_k=4)
-    yield (
-        "citations",
-        [
-            {
-                "material_id": h["material_id"],
-                "material": h["material"],
-                "page": h["page"],
-                "snippet": h["snippet"],
-            }
-            for h in hits
-        ],
-    )
+    citations = [
+        {
+            "material_id": h["material_id"],
+            "material": h["material"],
+            "page": h["page"],
+            "snippet": h["snippet"],
+        }
+        for h in hits
+    ]
     context = "\n\n".join(
         f"[{i + 1}] {h['text']}\n（来源: {h['material']} 第{h['page']}页）" for i, h in enumerate(hits)
     )
@@ -396,8 +399,66 @@ async def stream_solution(session: Session, problem: Problem) -> AsyncIterator[t
             "content": f"题目（{problem.number or '未编号'}）：\n{problem.stem}\n{ref}\n课程材料节选：\n{context}",
         },
     ]
-    async for piece in llm.chat_stream(messages):
+    return messages, citations
+
+
+def save_solution(session: Session, problem_id: int, text: str, citations: list[dict]) -> None:
+    row = session.get(Problem, problem_id)
+    if row is None:
+        return
+    row.solution = text
+    row.solution_citations = json.dumps(citations, ensure_ascii=False)
+    session.add(row)
+    session.commit()
+
+
+async def stream_solution(
+    session: Session, problem: Problem, *, regenerate: bool = False
+) -> AsyncIterator[tuple[str, Any]]:
+    """AI 详解流：("meta", {"cached"}) → ("citations", [...]) → 若干 ("delta", 文本片段)。
+
+    已落库的详解直接整段回放，不再调用模型；新生成的结果在流结束后写回 Problem。
+    """
+    if problem.solution and not regenerate:
+        yield ("meta", {"cached": True})
+        yield ("citations", parse_citations(problem.solution_citations))
+        yield ("delta", problem.solution)
+        return
+    yield ("meta", {"cached": False})
+    messages, citations = await _solution_prompt(session, problem)
+    yield ("citations", citations)
+    acc = ""
+    async for piece in llm.chat_stream(messages, model=config.current().problem_model):
+        acc += piece
         yield ("delta", piece)
+    if acc.strip() and problem.id is not None:
+        save_solution(session, problem.id, acc.strip(), citations)
+
+
+async def generate_solution(session: Session, problem: Problem) -> str:
+    """非流式生成并落库，供批量脚本使用。"""
+    messages, citations = await _solution_prompt(session, problem)
+    text = (
+        await llm.complete(
+            messages,
+            max_tokens=3000,
+            timeout_s=200.0,
+            model=config.current().problem_model,
+        )
+    ).strip()
+    if text and problem.id is not None:
+        save_solution(session, problem.id, text, citations)
+    return text
+
+
+def parse_citations(raw: str) -> list[dict]:
+    try:
+        value = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return []
+    if not isinstance(value, list):
+        return []
+    return [x for x in value if isinstance(x, dict)]
 
 
 def parse_tags(raw: str) -> list[str]:
