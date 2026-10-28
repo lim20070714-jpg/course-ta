@@ -21,6 +21,12 @@ CourseTA 把课程材料解析入库后提供检索、总结、知识图谱、�
 
 ## 1. 路径 A：本机自用（uv + npm dev）
 
+Windows 上最省事的是仓库根目录的 `start.bat`：缺 `web\dist` 时自动 `npm install` + `npm run build`，
+缺 `server\.env` 时提示并以 BYOK 模式启动，随后在 8000 端口同时提供页面与 `/api` 并自动打开浏览器。
+`start.bat 8080` 可换端口。
+
+手动起两个端口（改前端代码时用）：
+
 ```powershell
 # 后端
 cd server
