@@ -119,6 +119,7 @@ export interface ProblemDetail {
   knowledge: string[]
   solution: string
   solution_citations: Citation[]
+  solution_model: string
   attempts: Attempt[]
 }
 
@@ -589,7 +590,7 @@ export async function streamGrade(opts: {
 export async function streamSolution(opts: {
   problemId: number
   regenerate?: boolean
-  onMeta?: (meta: { cached: boolean }) => void
+  onMeta?: (meta: { cached: boolean; model?: string }) => void
   onCitations: (citations: Citation[]) => void
   onDelta: (text: string) => void
 }): Promise<void> {

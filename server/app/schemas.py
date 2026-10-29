@@ -144,6 +144,7 @@ class ProblemDetailRead(BaseModel):
     knowledge: list[str]
     solution: str = ""
     solution_citations: list[SearchHit] = []
+    solution_model: str = ""
     attempts: list[AttemptRead]
 
 

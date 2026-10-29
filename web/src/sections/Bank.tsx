@@ -68,6 +68,7 @@ export default function Bank({
   const [solving, setSolving] = useState(false)
   const [solutionText, setSolutionText] = useState('')
   const [solutionCitations, setSolutionCitations] = useState<Citation[]>([])
+  const [solutionModel, setSolutionModel] = useState('')
   const [review, setReview] = useState<ReviewCard | null>(null)
   const historyRef = useRef<HTMLDetailsElement>(null)
 
@@ -152,6 +153,7 @@ export default function Bank({
         setHint('')
         setSolutionText(d.solution ?? '')
         setSolutionCitations(d.solution_citations ?? [])
+        setSolutionModel(d.solution_model ?? '')
       })
       .catch((e: Error) => setNotice(e.message))
   }, [])
@@ -238,10 +240,17 @@ export default function Bank({
     setNotice('')
     let acc = ''
     let cited: Citation[] = []
+    let model = ''
     try {
       await streamSolution({
         problemId: current.id,
         regenerate,
+        onMeta: (m) => {
+          if (m.model) {
+            model = m.model
+            setSolutionModel(m.model)
+          }
+        },
         onCitations: (c) => {
           cited = c
           setSolutionCitations(c)
@@ -252,7 +261,9 @@ export default function Bank({
         },
       })
       setCurrent((p) =>
-        p && p.id === current.id ? { ...p, solution: acc, solution_citations: cited } : p,
+        p && p.id === current.id
+          ? { ...p, solution: acc, solution_citations: cited, solution_model: model }
+          : p,
       )
     } catch (e) {
       setNotice((e as Error).message)
@@ -495,6 +506,11 @@ export default function Bank({
                   >
                     {solving ? '生成中…' : current.solution ? '重新生成详解' : 'AI 详解'}
                   </button>
+                  {current.solution && solutionModel && (
+                    <span className="citation-static" title="该详解由这个模型生成，换模型后旧详解不会自动更新">
+                      由 {solutionModel} 生成
+                    </span>
+                  )}
                   {solutionCitations.length > 0 && (
                     <div className="citations">
                       {solutionCitations.slice(0, 4).map((c, i) => (

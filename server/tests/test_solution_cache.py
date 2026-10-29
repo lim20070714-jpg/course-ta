@@ -87,7 +87,7 @@ async def test_cached_solution_replays_without_llm(engine, monkeypatch: pytest.M
     calls = _stub_llm(monkeypatch, ["不该被调用"])
     with Session(engine) as session:
         events = await _collect(core.stream_solution(session, session.get(Problem, 2)))
-    assert events[0] == ("meta", {"cached": True})
+    assert events[0] == ("meta", {"cached": True, "model": ""})
     assert events[1] == ("citations", CITATIONS)
     assert events[2] == ("delta", "已落库的详解")
     assert calls == []
@@ -98,7 +98,7 @@ async def test_generated_solution_is_persisted(engine, monkeypatch: pytest.Monke
     calls = _stub_llm(monkeypatch, ["第一步：", "开路电压 $U_{oc}=6$ V。"])
     with Session(engine) as session:
         events = await _collect(core.stream_solution(session, session.get(Problem, 1)))
-    assert events[0] == ("meta", {"cached": False})
+    assert events[0] == ("meta", {"cached": False, "model": calls[0]["model"]})
     assert events[1] == ("citations", CITATIONS)
     assert "".join(str(d) for k, d in events if k == "delta") == "第一步：开路电压 $U_{oc}=6$ V。"
     assert len(calls) == 1
@@ -107,6 +107,7 @@ async def test_generated_solution_is_persisted(engine, monkeypatch: pytest.Monke
         row = session.get(Problem, 1)
         assert row.solution == "第一步：开路电压 $U_{oc}=6$ V。"
         assert json.loads(row.solution_citations) == CITATIONS
+        assert row.solution_model == calls[0]["model"], "详解要记下是哪个模型写的"
 
 
 @pytest.mark.anyio()
@@ -116,7 +117,7 @@ async def test_regenerate_overwrites_cached(engine, monkeypatch: pytest.MonkeyPa
         events = await _collect(
             core.stream_solution(session, session.get(Problem, 2), regenerate=True)
         )
-    assert events[0] == ("meta", {"cached": False})
+    assert events[0][0] == "meta" and events[0][1]["cached"] is False
     assert len(calls) == 1
     with Session(engine) as session:
         assert session.get(Problem, 2).solution == "重新生成的详解"
@@ -139,6 +140,7 @@ async def test_generate_solution_non_streaming(engine, monkeypatch: pytest.Monke
         row = session.get(Problem, 1)
         assert row.solution == "批量生成的详解"
         assert json.loads(row.solution_citations) == CITATIONS
+        assert row.solution_model, "批量生成的详解同样要记模型名"
 
 
 def test_detail_exposes_solution(client: TestClient):
@@ -156,7 +158,7 @@ def test_solution_endpoint_streams_cached(client: TestClient, monkeypatch: pytes
     events = [line.split(":", 1)[1].strip() for line in lines if line.startswith("event:")]
     assert events == ["meta", "citations", "delta", "done"]
     payloads = [line.split(":", 1)[1].strip() for line in lines if line.startswith("data:")]
-    assert json.loads(payloads[0]) == {"cached": True}
+    assert json.loads(payloads[0])["cached"] is True
     assert json.loads(payloads[2]) == {"text": "已落库的详解"}
     assert calls == []
 
@@ -166,7 +168,8 @@ def test_solution_endpoint_regenerate_flag(client: TestClient, monkeypatch: pyte
     with client.stream("POST", "/api/problems/2/solution?regenerate=true") as resp:
         lines = [line for line in resp.iter_lines() if line]
     payloads = [line.split(":", 1)[1].strip() for line in lines if line.startswith("data:")]
-    assert json.loads(payloads[0]) == {"cached": False}
+    assert json.loads(payloads[0])["cached"] is False
+    assert json.loads(payloads[0])["model"]
     assert len(calls) == 1
     assert client.get("/api/problems/2").json()["solution"] == "新详解"
 

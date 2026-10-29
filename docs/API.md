@@ -197,7 +197,7 @@ curl -X POST http://127.0.0.1:8000/api/courses/1/materials \
 | GET | `/api/courses/{course_id}/problem-sources` | 题源列表：每份材料的题目数与抽取任务状态（`job_status`: idle/running/done/failed） |
 | POST | `/api/materials/{material_id}/extract-problems` | 手动触发题目抽取（材料必须 `ready`；已在跑则 409） |
 | GET | `/api/courses/{course_id}/problems` | 题目列表。查询参数：`material_id`、`knowledge`（按知识点过滤）、`status`（`unseen`/`wrong`/`correct`）、`q`、`offset`、`limit`（1–200，默认 50） |
-| GET | `/api/problems/{problem_id}` | 题目详情：题干、参考答案、已存 AI 详解 `solution` 与其引用页 `solution_citations[]`、知识点、历史作答 `attempts[]` |
+| GET | `/api/problems/{problem_id}` | 题目详情：题干、参考答案、已存 AI 详解 `solution`、引用页 `solution_citations[]`、生成该详解的模型 `solution_model`、知识点、历史作答 `attempts[]` |
 | GET | `/api/problems/{problem_id}/image?zoom=2` | 题目配图：从试卷页裁出该题区域（仅 PDF 来源） |
 | POST | `/api/problems/{problem_id}/hint` | 一句话方向提示（非流式，可能耗时较长） |
 | POST | `/api/problems/{problem_id}/grade` | 批改作答（SSE）。body `{"answer":"..."}`；结果写入错题本并按判定重排复习卡。参考源依次取参考答案、AI 详解 |
@@ -214,7 +214,7 @@ curl -X POST http://127.0.0.1:8000/api/courses/1/materials \
 
 - `/grade`：`verdict`（最多一次，`{"verdict":"correct|partial|wrong|unknown"}`）→ `delta`（正文增量）→ `error` → `done`。
   注意 `verdict` 由模型输出里的 `【判定】` 标记解析而来，可能出现在 `delta` 之后（未解析到时以 `unknown` 结尾）。
-- `/solution`：`meta`（`{"cached": true|false}`，首帧）→ `citations`（生成时检索到的材料页，缓存命中时同样下发）→ `delta` → `error` → `done`。
+- `/solution`：`meta`（`{"cached": true|false, "model": "<模型名>"}`，首帧；缓存命中时 `model` 为当初生成它的模型，历史数据可能为空串）→ `citations`（生成时检索到的材料页，缓存命中时同样下发）→ `delta` → `error` → `done`。
 
 ### 3.6 知识图谱
 

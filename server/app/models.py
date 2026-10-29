@@ -51,6 +51,7 @@ class Problem(SQLModel, table=True):
     knowledge: str = "[]"  # 知识点标签，JSON 数组字符串
     solution: str = ""  # AI 详解（生成一次落库，之后直接读）
     solution_citations: str = "[]"  # 详解引用的材料页，JSON 数组字符串
+    solution_model: str = ""  # 生成该详解的模型名，换模型后能分辨新旧详解的出处
     created_at: datetime = Field(default_factory=_now)
 
 

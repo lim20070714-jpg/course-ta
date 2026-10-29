@@ -46,7 +46,7 @@ def _ensure_material_pages() -> None:
 
 
 def _ensure_problem_solution() -> None:
-    """给旧库补 Problem.solution / solution_citations 列（AI 详解落库）。"""
+    """给旧库补 Problem 的详解相关列（AI 详解落库）。"""
     with engine.begin() as conn:
         cols = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(problem)")}
         if "solution" not in cols:
@@ -54,6 +54,10 @@ def _ensure_problem_solution() -> None:
         if "solution_citations" not in cols:
             conn.exec_driver_sql(
                 "ALTER TABLE problem ADD COLUMN solution_citations VARCHAR NOT NULL DEFAULT '[]'"
+            )
+        if "solution_model" not in cols:
+            conn.exec_driver_sql(
+                "ALTER TABLE problem ADD COLUMN solution_model VARCHAR NOT NULL DEFAULT ''"
             )
 
 

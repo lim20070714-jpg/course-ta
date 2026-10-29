@@ -1,8 +1,11 @@
+import asyncio
+
 from sqlmodel import Session, SQLModel, create_engine
 from sqlmodel.pool import StaticPool
 
+from app.core import llm, rag
 from app.core.store import search_text
-from app.models import Chunk
+from app.models import Chunk, Material
 
 
 def _memory_session() -> Session:
@@ -53,3 +56,23 @@ def test_search_text_no_match() -> None:
         session.add(Chunk(course_id=1, material_id=1, page=1, seq=0, text="电容电感"))
         session.commit()
         assert search_text(session, 1, "三极管", 10) == []
+
+
+def test_retrieve_falls_back_to_keywords_when_embeddings_are_down(monkeypatch) -> None:
+    async def boom(texts: list[str]) -> list[list[float]]:
+        raise llm.LLMNotConfigured("余额不足")
+
+    monkeypatch.setattr(llm, "embed", boom)
+    with _memory_session() as session:
+        session.add_all(
+            [
+                Material(course_id=1, filename="讲义.pdf", stored_path="x", kind="pdf"),
+                Chunk(course_id=1, material_id=1, page=4, seq=0, text="节点电压法的步骤"),
+                Chunk(course_id=1, material_id=1, page=7, seq=1, text="无关的热学内容"),
+            ]
+        )
+        session.commit()
+        hits = asyncio.run(rag.retrieve(session, 1, "节点电压法", top_k=3))
+    assert [h["page"] for h in hits] == [4]
+    assert hits[0]["retrieval"] == "keyword"
+    assert hits[0]["material"] == "讲义.pdf"

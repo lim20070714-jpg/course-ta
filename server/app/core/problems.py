@@ -402,12 +402,15 @@ async def _solution_prompt(session: Session, problem: Problem) -> tuple[list[dic
     return messages, citations
 
 
-def save_solution(session: Session, problem_id: int, text: str, citations: list[dict]) -> None:
+def save_solution(
+    session: Session, problem_id: int, text: str, citations: list[dict], model: str = ""
+) -> None:
     row = session.get(Problem, problem_id)
     if row is None:
         return
     row.solution = text
     row.solution_citations = json.dumps(citations, ensure_ascii=False)
+    row.solution_model = model
     session.add(row)
     session.commit()
 
@@ -420,34 +423,36 @@ async def stream_solution(
     已落库的详解直接整段回放，不再调用模型；新生成的结果在流结束后写回 Problem。
     """
     if problem.solution and not regenerate:
-        yield ("meta", {"cached": True})
+        yield ("meta", {"cached": True, "model": problem.solution_model})
         yield ("citations", parse_citations(problem.solution_citations))
         yield ("delta", problem.solution)
         return
-    yield ("meta", {"cached": False})
+    model = config.current().problem_model
+    yield ("meta", {"cached": False, "model": model})
     messages, citations = await _solution_prompt(session, problem)
     yield ("citations", citations)
     acc = ""
-    async for piece in llm.chat_stream(messages, model=config.current().problem_model):
+    async for piece in llm.chat_stream(messages, model=model):
         acc += piece
         yield ("delta", piece)
     if acc.strip() and problem.id is not None:
-        save_solution(session, problem.id, acc.strip(), citations)
+        save_solution(session, problem.id, acc.strip(), citations, model)
 
 
 async def generate_solution(session: Session, problem: Problem) -> str:
     """非流式生成并落库，供批量脚本使用。"""
     messages, citations = await _solution_prompt(session, problem)
+    model = config.current().problem_model
     text = (
         await llm.complete(
             messages,
             max_tokens=3000,
             timeout_s=200.0,
-            model=config.current().problem_model,
+            model=model,
         )
     ).strip()
     if text and problem.id is not None:
-        save_solution(session, problem.id, text, citations)
+        save_solution(session, problem.id, text, citations, model)
     return text
 
 

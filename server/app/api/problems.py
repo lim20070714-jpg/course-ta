@@ -287,6 +287,7 @@ def problem_detail(problem_id: int) -> ProblemDetailRead:
             solution_citations=[
                 SearchHit(**c) for c in core.parse_citations(problem.solution_citations)
             ],
+            solution_model=problem.solution_model,
             attempts=[
                 AttemptRead(
                     id=a.id or 0,

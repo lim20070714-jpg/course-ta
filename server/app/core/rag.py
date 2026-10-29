@@ -1,11 +1,12 @@
 from collections.abc import AsyncIterator
 from typing import Any
 
+import httpx
 from sqlmodel import Session, select
 
 from app.config import settings
 from app.core import llm
-from app.core.store import search_chunks
+from app.core.store import keyword_search_chunks, search_chunks
 from app.models import Material
 
 SYSTEM_PROMPT = (
@@ -22,11 +23,31 @@ SYSTEM_PROMPT = (
 )
 
 
+_degraded_warned = False
+
+
+def _warn_degraded(reason: str) -> None:
+    """每个进程只提示一次：批量生成 300 题时重复打印会把日志淹掉。"""
+    global _degraded_warned
+    if not _degraded_warned:
+        _degraded_warned = True
+        print(f"[rag] 向量检索不可用，降级为词频检索：{reason}", flush=True)
+
+
 async def retrieve(
     session: Session, course_id: int, question: str, top_k: int | None = None
 ) -> list[dict[str, Any]]:
-    (query_vec,) = await llm.embed([question])
-    hits = search_chunks(session, course_id, query_vec, top_k or settings.top_k)
+    limit = top_k or settings.top_k
+    mode = "vector"
+    try:
+        (query_vec,) = await llm.embed([question])
+        hits = search_chunks(session, course_id, query_vec, limit)
+    except (llm.LLMNotConfigured, httpx.HTTPError) as exc:
+        # 向量模型没配或暂时不可用时退到词频检索：答案带的引用会差一些，
+        # 但整个问答、详解、批改链路不至于全部停摆
+        _warn_degraded(str(exc)[:120])
+        hits = keyword_search_chunks(session, course_id, question, limit)
+        mode = "keyword"
     names = {
         m.id: m.filename
         for m in session.exec(select(Material).where(Material.course_id == course_id)).all()
@@ -39,6 +60,7 @@ async def retrieve(
             "snippet": chunk.text[:120],
             "text": chunk.text,
             "score": score,
+            "retrieval": mode,
         }
         for chunk, score in hits
     ]
