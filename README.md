@@ -126,6 +126,7 @@ flowchart LR
 | --- | --- |
 | `LLM_API_KEY` / `LLM_BASE_URL` / `LLM_MODEL` | 任意 OpenAI 兼容对话接口（DeepSeek / Qwen / Ollama / OpenAI） |
 | `EMBEDDING_API_KEY` / `EMBEDDING_BASE_URL` / `EMBEDDING_MODEL` | 向量模型；DeepSeek 不提供 embeddings，需单独配置 |
+| `RETRIEVAL_MODE` | `auto`（向量优先、失败降级为词频）/ `vector`（只用向量）/ `keyword`（只用词频，不调向量模型） |
 | `EXTRACT_MODEL` | 题目抽取专用模型，留空沿用 `LLM_MODEL` |
 | `VISION_MODEL` / `VISION_KEY` / `VISION_BASE` | 图片描述模型，可与对话模型分属不同服务商；留空则跳过描述，图片仍可上传与查看 |
 | `CORS_ORIGINS` | 允许的前端来源，逗号分隔；部署到域名后必须改 |

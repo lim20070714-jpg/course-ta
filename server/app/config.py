@@ -39,6 +39,10 @@ class Settings(BaseSettings):
     chunk_size: int = 500
     chunk_overlap: int = 80
 
+    # 检索方式：auto（默认，向量优先、失败降级）/ vector（只用向量，失败即报错）
+    # / keyword（只用词频，不调向量模型，适合没有 embeddings 额度的部署）
+    retrieval_mode: str = "auto"
+
     # 允许访问 API 的前端来源，逗号分隔。开源部署时改成自己的域名，例如
     # CORS_ORIGINS=https://course.example.com,http://localhost:5173
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"

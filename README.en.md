@@ -118,6 +118,7 @@ flowchart LR
 | --- | --- |
 | `LLM_API_KEY` / `LLM_BASE_URL` / `LLM_MODEL` | Any OpenAI-compatible chat endpoint (DeepSeek / Qwen / Ollama / OpenAI) |
 | `EMBEDDING_API_KEY` / `EMBEDDING_BASE_URL` / `EMBEDDING_MODEL` | Embedding model; DeepSeek has no embeddings endpoint, configure separately |
+| `RETRIEVAL_MODE` | `auto` (vectors first, fall back to term frequency) / `vector` (vectors only) / `keyword` (term frequency only, no embedding calls) |
 | `EXTRACT_MODEL` | Model used for problem extraction; falls back to `LLM_MODEL` |
 | `VISION_MODEL` / `VISION_KEY` / `VISION_BASE` | Image-captioning model, may come from a different provider; if empty, captions are skipped and images remain uploadable/viewable |
 | `CORS_ORIGINS` | Allowed frontend origins, comma-separated; must change when deployed to a domain |

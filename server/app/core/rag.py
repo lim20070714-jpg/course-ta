@@ -38,16 +38,27 @@ async def retrieve(
     session: Session, course_id: int, question: str, top_k: int | None = None
 ) -> list[dict[str, Any]]:
     limit = top_k or settings.top_k
-    mode = "vector"
+    mode = settings.retrieval_mode.strip().lower()
+    if mode == "keyword":
+        hits = keyword_search_chunks(session, course_id, question, limit)
+        return _as_hits(session, course_id, hits, "keyword")
     try:
         (query_vec,) = await llm.embed([question])
         hits = search_chunks(session, course_id, query_vec, limit)
     except (llm.LLMNotConfigured, httpx.HTTPError) as exc:
         # 向量模型没配或暂时不可用时退到词频检索：答案带的引用会差一些，
         # 但整个问答、详解、批改链路不至于全部停摆
+        if mode == "vector":
+            raise
         _warn_degraded(str(exc)[:120])
         hits = keyword_search_chunks(session, course_id, question, limit)
-        mode = "keyword"
+        return _as_hits(session, course_id, hits, "keyword")
+    return _as_hits(session, course_id, hits, "vector")
+
+
+def _as_hits(
+    session: Session, course_id: int, hits: list[tuple[Any, float]], mode: str
+) -> list[dict[str, Any]]:
     names = {
         m.id: m.filename
         for m in session.exec(select(Material).where(Material.course_id == course_id)).all()

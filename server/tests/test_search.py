@@ -76,3 +76,37 @@ def test_retrieve_falls_back_to_keywords_when_embeddings_are_down(monkeypatch) -
     assert [h["page"] for h in hits] == [4]
     assert hits[0]["retrieval"] == "keyword"
     assert hits[0]["material"] == "讲义.pdf"
+
+
+def test_retrieval_mode_keyword_never_calls_embeddings(monkeypatch) -> None:
+    called: list[int] = []
+
+    async def spy(texts: list[str]) -> list[list[float]]:
+        called.append(1)
+        return [[0.0]]
+
+    monkeypatch.setattr(llm, "embed", spy)
+    monkeypatch.setattr(rag.settings, "retrieval_mode", "keyword")
+    with _memory_session() as session:
+        session.add(
+            Chunk(course_id=1, material_id=1, page=2, seq=0, text="叠加定理的适用条件")
+        )
+        session.commit()
+        hits = asyncio.run(rag.retrieve(session, 1, "叠加定理", top_k=2))
+    assert [h["retrieval"] for h in hits] == ["keyword"]
+    assert called == [], "keyword 模式不应调用向量模型"
+
+
+def test_retrieval_mode_vector_propagates_failure(monkeypatch) -> None:
+    async def boom(texts: list[str]) -> list[list[float]]:
+        raise llm.LLMNotConfigured("没配向量模型")
+
+    monkeypatch.setattr(llm, "embed", boom)
+    monkeypatch.setattr(rag.settings, "retrieval_mode", "vector")
+    with _memory_session() as session:
+        try:
+            asyncio.run(rag.retrieve(session, 1, "任意", top_k=2))
+        except llm.LLMNotConfigured:
+            pass
+        else:
+            raise AssertionError("vector 模式下不允许静默降级")

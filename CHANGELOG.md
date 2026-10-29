@@ -11,7 +11,8 @@
 
 - 检索降级：[server/app/core/rag.py](server/app/core/rag.py) 的 `retrieve` 捕获 `LLMNotConfigured` 与 `httpx.HTTPError`，退到 [server/app/core/store.py](server/app/core/store.py) 新增的 `keyword_search_chunks`：拉丁词按词切、中文按相邻两字切（不需要分词器），打分是简化的 BM25——idf 加权、词频收益递减，因此「电路」这类高频词不会把结果带偏。命中结果带 `retrieval: "keyword"`，降级告警每进程只打印一次。此前向量服务一挂（没配 key、余额不足、服务宕机），问答、AI 详解、批改三条链路一起失败。
 - 详解溯源：`Problem` 增加 `solution_model` 列（[server/app/db.py](server/app/db.py) 启动时补列），流式与非流式生成都写入 `config.current().problem_model`；`GET /api/problems/{id}` 与详解流的首帧 `meta` 一并下发，题库详情在「重新生成详解」旁标出「由 xxx 生成」。换模型后新旧详解的出处可以分辨，不必靠猜。
-- 测试数：后端 344（+4：词频检索排序、无向量可用、中文二元切分、检索降级路径）、前端 428。
+- 检索方式可切换：新增 `RETRIEVAL_MODE`，`auto`（默认，向量优先、失败降级）/ `vector`（失败即报错，不静默降级）/ `keyword`（完全不调向量模型，适合没有 embeddings 额度的部署）。
+- 测试数：后端 346（+6：词频检索排序、无向量可用、中文二元切分、检索降级路径、`keyword` 模式不调向量、`vector` 模式不吞异常）、前端 428。
 
 ## v0.20.0 — 2026-10-28
 
