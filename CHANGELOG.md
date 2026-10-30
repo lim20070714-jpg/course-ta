@@ -1,9 +1,19 @@
 # 更新记录
 
 版本号对应 git tag 与 GitHub Release。日期是合入 `main` 的提交日期。
-当前版本：**v0.21.1**。
+当前版本：**v0.21.2**。
 
 ---
+
+## v0.21.2 — 2026-10-30
+
+重新抽题不再清空已有详解；AI 详解不再冒充标准答案。
+
+- 重抽保数据：[server/app/core/problems.py](server/app/core/problems.py) 的 `run_extraction` 原先先删后插，材料重抽一次就把已生成的详解连同作答记录、复习卡一起删掉（一次误操作蒸发了 90 份详解）。现在按「题号 | 题干前 80 字」合并，题号唯一且旧行唯一时兜底复用，`Problem.id` 不变；只有这次抽取里确实消失的题才删除。新增 [server/tests/test_extract_merge.py](server/tests/test_extract_merge.py)：重抽后 `solution`、`solution_model`、`solution_citations` 与 id 都不变，题干微调仍原地合并，新题拿新 id，消失的题才移除。
+- 提示词不再放任编造：`SOLUTION_SYSTEM` 禁止引入题干未给出的元件与参数、禁止猜测题图连接方式，依赖图时只给推导框架与待代入公式，结论不确定直接说明（[server/app/core/problems.py](server/app/core/problems.py)）。
+- 草稿定位贯穿到界面与批改：按钮改为「AI 解题草稿」，「参考答案与详解」区标注「模型生成、未经人工校验」，无答案题不再暗示「批改与模考以它为依据」；`reference_for_grading` 注入的是「参考草稿（可能有错）」，并要求模型在草稿与学生推导冲突时以独立推导为准（[web/src/sections/Bank.tsx](web/src/sections/Bank.tsx)、[web/src/sections/Review.tsx](web/src/sections/Review.tsx)、[server/app/core/problems.py](server/app/core/problems.py)）。
+- 实测：本地 `qwen2.5:7b` 重跑该课 18 道无答案题，18/18 生成成功、共 21,313 字（1221s，并发 2）。模型仍会在推导题上出错（如齐次部分漏掉 $u(x,y,0)=x^2$），所以只把它当草稿；换更强的模型后 `generate_solutions.py --force` 可整批重写。
+- 数据与文档：题库 591 道中 464 道无材料答案，均已生成草稿（合计 815,249 字，平均 1,757 字，每份带引用页）；测试数后端 349 / 前端 428（总数 777），[docs/HIGHLIGHTS.md](docs/HIGHLIGHTS.md) 按实测回填。
 
 ## v0.21.1 — 2026-10-30
 

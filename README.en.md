@@ -21,7 +21,7 @@ The UI is a **zone-based platform, not a chat wrapper**: eight zones, each a com
 | Backend | FastAPI + SQLModel + SQLite, sympy kernel, custom retrieval pipeline |
 | Frontend | React 19 + Vite + TypeScript, KaTeX, route-level lazy loading |
 | API | 42 paths / 57 operations, streaming Q&A over SSE |
-| Tests | 774 (346 backend / 428 frontend), fully offline, no API key required |
+| Tests | 777 (349 backend / 428 frontend), fully offline, no API key required |
 | Size | ~36.5k lines (`server/app` 6.6k + `server/tests` 4.5k + `web/src` 18.8k + CSS 6.5k) |
 | License | MIT |
 
