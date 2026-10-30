@@ -491,11 +491,11 @@ export default function Bank({
                   </div>
                 ) : current.solution ? (
                   <p className="prob-hint">
-                    材料中未附带该题解答，下面是助教结合课程材料生成的参考解答，批改与模考以它为依据。
+                    材料中未附带该题解答。以下是模型结合课程材料生成的草稿，未经人工校验：依赖题图或图中数据的部分只会给出推导框架，数值与结论可能出错，请以自己推导为准。批改与模考引用它作为参考，不代表它正确。
                   </p>
                 ) : (
                   <p className="prob-hint">
-                    材料中未附带该题解答。点击「AI 详解」，助教会结合课程材料完整推导，生成一次后落库。
+                    材料中未附带该题解答。点「AI 解题草稿」，助教会结合课程材料写一版草稿，生成一次后落库；草稿未经校验，只作参考。
                   </p>
                 )}
                 <div className="prob-actions">
@@ -504,11 +504,14 @@ export default function Bank({
                     onClick={() => solve(Boolean(current.solution))}
                     disabled={solving}
                   >
-                    {solving ? '生成中…' : current.solution ? '重新生成详解' : 'AI 详解'}
+                    {solving ? '生成中…' : current.solution ? '重新生成草稿' : 'AI 解题草稿'}
                   </button>
-                  {current.solution && solutionModel && (
-                    <span className="citation-static" title="该详解由这个模型生成，换模型后旧详解不会自动更新">
-                      由 {solutionModel} 生成
+                  {current.solution && (
+                    <span
+                      className="citation-static"
+                      title="模型生成、未经人工校验：依赖题图或图中数据的部分只会给出推导框架，请以自己推导与材料参考答案为准"
+                    >
+                      AI 生成·未校验{solutionModel ? ` · ${solutionModel}` : ''}
                     </span>
                   )}
                   {solutionCitations.length > 0 && (

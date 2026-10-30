@@ -24,7 +24,7 @@ async def lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title="CourseTA API", version="0.21.1", lifespan=lifespan)
+app = FastAPI(title="CourseTA API", version="0.21.2", lifespan=lifespan)
 
 
 class BYOKMiddleware:

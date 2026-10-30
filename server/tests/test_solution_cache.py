@@ -180,6 +180,12 @@ def test_reference_for_grading_prefers_material_answer():
     assert "没有参考答案" in core.reference_for_grading(Problem(stem="x"))
 
 
+def test_solution_reference_is_marked_as_unverified_draft():
+    ref = core.reference_for_grading(Problem(stem="x", solution="草稿正文"))
+    assert "参考草稿" in ref and "未经人工校验" in ref
+    assert "以独立推导为准" in ref
+
+
 def test_exam_pool_accepts_solution_only(engine):
     with Session(engine) as session:
         pool = exams.gradeable([session.get(Problem, i) for i in (1, 2, 3)])

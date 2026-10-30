@@ -852,7 +852,7 @@ export default function Library({
                     {examProblems !== null && examProblems.length === 0 && examJob !== 'running' && (
                       <p className="reader-empty">
                         这道材料还没有题目。「提取题目」会把试卷自动切割成结构化题目（题干、参考答案、
-                        知识点），随后可在每道题上查看原题配图、获取提示、作答批改与 AI 详解。
+                        知识点），随后可在每道题上查看原题配图、获取提示、作答批改与 AI 解题草稿。
                       </p>
                     )}
                     <div className="prob-list">

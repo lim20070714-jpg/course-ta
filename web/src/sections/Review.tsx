@@ -314,7 +314,7 @@ export default function Review({
                           <div className="review-answer-missing">
                             材料未附带解答。
                             <button className="link" onClick={() => onOpenProblem(detail.id)}>
-                              去题库看 AI 详解
+                              去题库看 AI 草稿
                             </button>
                           </div>
                         )}
