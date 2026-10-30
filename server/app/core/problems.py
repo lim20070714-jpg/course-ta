@@ -6,7 +6,7 @@ import re
 from collections.abc import AsyncIterator
 from typing import Any
 
-from sqlmodel import Session, delete
+from sqlmodel import Session, select
 
 from app import config, db
 from app.core import llm, review
@@ -80,13 +80,17 @@ HINT_SYSTEM = (
 )
 
 SOLUTION_SYSTEM = (
-    "你是课程助教，请为下面这道题写出完整、严谨的解答。\n"
+    "你是课程助教，请为下面这道题写出解答。\n"
     "1. 先写「**思路**」简述解题方向，再写「**解答**」按步骤推导，每步注明依据"
     "（如 KVL、饱和区条件 $v_{DS} > v_{GS} - V_{TH}$）；\n"
     "2. 引用课程材料时使用格式 [来源: 文件名 第X页]；\n"
-    "3. 若题目依赖不可见的电路图等信息，先说明你的假设，再按常规理解作答；\n"
-    "4. 结尾用一两句话总结本题涉及的知识点。\n"
-    "5. " + TEACHER_RULES
+    "3. 只使用题干与材料节选中出现的元件、参数和数值：不得引入题干没有给出的元件，"
+    "不得猜测题图里的连接方式或组态；\n"
+    "4. 题目依赖电路图或图中数据时，写明「此处需要原图（或图中的 X）」，只给出可确定的"
+    "推导框架与待代入公式，不要编造具体数值；\n"
+    "5. 结论不确定时直接说不确定，不要用完整排版掩盖推导缺口；\n"
+    "6. 结尾用一两句话总结本题涉及的知识点。\n"
+    "7. " + TEACHER_RULES
 )
 
 
@@ -282,8 +286,47 @@ async def run_extraction(material_id: int) -> None:
             )
 
         with Session(db.engine) as session:
-            session.exec(delete(Problem).where(Problem.material_id == material_id))
+            # 重提取按「题号|题干前 80 字」合并而不是先删后插：题目 id 不变，
+            # 已生成的 AI 详解、作答记录、复习卡都跟着原题走；只有这次抽取里
+            # 已经消失的题才删掉。抽取本身不确定，同一题的题干常被改写几个字，
+            # 所以题干对不上时再按题号兜底——仅当新旧两侧的题号都不重复才合并。
+            existing = session.exec(
+                select(Problem).where(Problem.material_id == material_id)  # type: ignore[attr-defined]
+            ).all()
+            by_key = {f"{p.number}|{p.stem[:80]}": p for p in existing}
+            kept: set[int] = set()
+            added = 0
+            pending: list[dict[str, Any]] = []
+
+            def _merge(row: Problem, n: dict[str, Any]) -> None:
+                row.page = n["page"]
+                row.stem = n["stem"]
+                row.answer = n["answer"]
+                row.knowledge = n["knowledge"]
+                session.add(row)
+                kept.add(row.id or 0)
+
             for n in items:
+                row = by_key.get(f"{n['number']}|{n['stem'][:80]}")
+                if row is not None and (row.id or 0) not in kept:
+                    _merge(row, n)
+                else:
+                    pending.append(n)
+
+            unused: dict[str, list[Problem]] = {}
+            for row in existing:
+                if (row.id or 0) not in kept:
+                    unused.setdefault(row.number, []).append(row)
+            incoming: dict[str, int] = {}
+            for n in pending:
+                incoming[n["number"]] = incoming.get(n["number"], 0) + 1
+
+            for n in pending:
+                same = unused.get(n["number"], [])
+                if incoming[n["number"]] == 1 and len(same) == 1:
+                    _merge(same[0], n)
+                    unused[n["number"]] = []
+                    continue
                 session.add(
                     Problem(
                         course_id=course_id,
@@ -295,8 +338,16 @@ async def run_extraction(material_id: int) -> None:
                         knowledge=n["knowledge"],
                     )
                 )
+                added += 1
+            removed = 0
+            for row in existing:
+                if (row.id or 0) not in kept:
+                    session.delete(row)
+                    removed += 1
             session.commit()
         note = "；".join(errors)[:200] if errors else ""
+        if removed or added:
+            note = "；".join(x for x in (note, f"新增 {added} 题、移除 {removed} 题") if x)[:200]
         _JOBS[material_id] = {"status": "done", "error": note, "count": len(items)}
     except Exception as exc:  # noqa: BLE001  把失败原因暴露给使用者
         _JOBS[material_id] = {"status": "failed", "error": str(exc)[:300]}
@@ -334,7 +385,12 @@ def reference_for_grading(problem: Problem) -> str:
     if problem.answer:
         return f"\n参考答案与解析：\n{problem.answer}\n"
     if problem.solution:
-        return f"\n参考解答（助教依据课程材料生成）：\n{problem.solution}\n"
+        # 详解是模型产物、未经人工校验：批改时只能当草稿参考，不能当标准答案。
+        return (
+            "\n参考草稿（模型生成、未经人工校验，可能有错，尤其依赖题图的部分）：\n"
+            f"{problem.solution}\n"
+            "若该草稿与你的独立推导或材料信息冲突，以独立推导为准，并在反馈中指出分歧。\n"
+        )
     return "\n（本题材料中没有参考答案）\n"
 
 
