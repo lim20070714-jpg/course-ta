@@ -9,6 +9,10 @@
     uv run python scripts/generate_solutions.py --material-id 3 # 指定试卷
     uv run python scripts/generate_solutions.py --force         # 已有详解也重新生成
     uv run python scripts/generate_solutions.py --concurrency 4 --limit 20
+
+单题超时由 SOLUTION_TIMEOUT_S 控制（默认 200s）。跑本地小模型时并发会摊薄每个
+请求的速度，长题容易超时，此时把 SOLUTION_TIMEOUT_S 调到 900 并把并发降到 2：
+    SOLUTION_TIMEOUT_S=900 uv run python scripts/generate_solutions.py --concurrency 2
 """
 
 import argparse
@@ -77,7 +81,11 @@ async def main() -> None:
 
     db.init_db()
     ids = _pick(args)
-    print(f"待生成 {len(ids)} 题，模型 {config.current().problem_model}", flush=True)
+    print(
+        f"待生成 {len(ids)} 题，模型 {config.current().problem_model}，"
+        f"单题超时 {config.settings.solution_timeout_s:.0f}s",
+        flush=True,
+    )
     if not ids:
         return
 

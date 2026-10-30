@@ -21,7 +21,7 @@
 | 后端 | FastAPI + SQLModel + SQLite，sympy 符号计算内核，自研检索管线 |
 | 前端 | React 19 + Vite + TypeScript，KaTeX，按分区懒加载 |
 | 接口 | 42 条路径 / 57 个操作，问答走 SSE |
-| 测试 | 768 个（后端 340 / 前端 428），全程离线，不需要 API key |
+| 测试 | 774 个（后端 346 / 前端 428），全程离线，不需要 API key |
 | 代码规模 | 约 36.5k 行（`server/app` 6.6k + `server/tests` 4.5k + `web/src` 18.8k + 样式 6.5k） |
 | 许可 | MIT |
 
@@ -180,7 +180,7 @@ curl localhost:8000/api/chat \
 
 ```bash
 cd server
-uv run pytest                                        # 340 个用例，全程离线（不需要 API key）
+uv run pytest                                        # 346 个用例，全程离线（不需要 API key）
 uv run ruff check app tests                          # lint + format 检查
 uv run python ../evals/run_eval.py --dry-run         # 校验评测集格式
 uv run python ../evals/run_eval.py --course-id 1     # 真实评测（需已配置 .env 且材料已入库）

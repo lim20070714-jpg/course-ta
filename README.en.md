@@ -21,7 +21,7 @@ The UI is a **zone-based platform, not a chat wrapper**: eight zones, each a com
 | Backend | FastAPI + SQLModel + SQLite, sympy kernel, custom retrieval pipeline |
 | Frontend | React 19 + Vite + TypeScript, KaTeX, route-level lazy loading |
 | API | 42 paths / 57 operations, streaming Q&A over SSE |
-| Tests | 768 (340 backend / 428 frontend), fully offline, no API key required |
+| Tests | 774 (346 backend / 428 frontend), fully offline, no API key required |
 | Size | ~36.5k lines (`server/app` 6.6k + `server/tests` 4.5k + `web/src` 18.8k + CSS 6.5k) |
 | License | MIT |
 
@@ -170,7 +170,7 @@ curl localhost:8000/api/chat \
 
 ```bash
 cd server
-uv run pytest                                        # 340 cases, fully offline (no API key)
+uv run pytest                                        # 346 cases, fully offline (no API key)
 uv run ruff check app tests                          # lint + format
 uv run python ../evals/run_eval.py --dry-run         # validate eval set format
 uv run python ../evals/run_eval.py --course-id 1     # live eval (needs .env + indexed materials)

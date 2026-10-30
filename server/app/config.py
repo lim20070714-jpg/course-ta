@@ -39,6 +39,10 @@ class Settings(BaseSettings):
     chunk_size: int = 500
     chunk_overlap: int = 80
 
+    # 单次 AI 详解生成的超时（秒）。本地小模型在并发下可能一分钟才出几百字，
+    # 云端模型 200s 足够；批量跑本地模型时把它调大，否则长题会被判超时。
+    solution_timeout_s: float = 200.0
+
     # 检索方式：auto（默认，向量优先、失败降级）/ vector（只用向量，失败即报错）
     # / keyword（只用词频，不调向量模型，适合没有 embeddings 额度的部署）
     retrieval_mode: str = "auto"

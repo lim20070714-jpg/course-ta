@@ -447,7 +447,7 @@ async def generate_solution(session: Session, problem: Problem) -> str:
         await llm.complete(
             messages,
             max_tokens=3000,
-            timeout_s=200.0,
+            timeout_s=config.settings.solution_timeout_s,
             model=model,
         )
     ).strip()

@@ -1,9 +1,17 @@
 # 更新记录
 
 版本号对应 git tag 与 GitHub Release。日期是合入 `main` 的提交日期。
-当前版本：**v0.21.0**。
+当前版本：**v0.21.1**。
 
 ---
+
+## v0.21.1 — 2026-10-30
+
+AI 详解的单题超时可以配置；题库详解补齐，文档数字按实测回填。
+
+- 超时配置：新增 `SOLUTION_TIMEOUT_S`（默认 200s，[server/app/config.py](server/app/config.py)），`generate_solution` 与批量脚本共用。起因是批量补题时 61 道长题全部失败：本地 7B 模型在 4 路并发下跑长题超过 200s，`httpx.ReadTimeout` 的 `str()` 为空，脚本只能打出 `failed: 0字`，看起来像模型返回了空字符串。把超时调到 900s、并发降到 2 之后，同一批 61 题全部成功（共 120,225 字）。
+- 批量脚本在启动时打印生效的单题超时，避免再靠猜（[server/scripts/generate_solutions.py](server/scripts/generate_solutions.py)）。
+- 文档：测试数修正为后端 346 / 前端 428（`README.md`、`README.en.md`）；[docs/HIGHLIGHTS.md](docs/HIGHLIGHTS.md) 的真实数据规模按实测更新——639 道题中 536 道已有 AI 详解，合计 1,014,309 字，平均每题 1,892 字。
 
 ## v0.21.0 — 2026-10-29
 
